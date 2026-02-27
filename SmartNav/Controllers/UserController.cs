@@ -22,10 +22,23 @@ namespace SmartNav.Controllers
         }
 
         [HttpPost("CreateUser")]
-        public async Task<IActionResult> CreateUser([FromBody] User user) 
+        public async Task<IActionResult> CreateUser([FromBody] User user)
         {
             try
             {
+                bool userExists = await _context.Users
+                .AnyAsync(u => u.UserName == user.UserName);
+
+                if (userExists)
+                {
+                    return Ok(new ApiResponse<object>
+                    {
+                        Status = "error",
+                        Message = "Username already exists",
+                        Data = null
+                    });
+                }
+
                 user.Password = _passwordService.HashPassword(user.Password);
                 _context.Users.Add(user);
                 await _context.SaveChangesAsync();
@@ -41,7 +54,7 @@ namespace SmartNav.Controllers
 
                 return Ok(new ApiResponse<object>
                 {
-                    Status = 200,
+                    Status = "success",
                     Message = "User created successfully",
                     Data = resultData
                 });
@@ -50,7 +63,7 @@ namespace SmartNav.Controllers
             {
                 return StatusCode(500, new ApiResponse<string>
                 {
-                    Status = 500,
+                    Status = "error",
                     Message = $"Error creating user: {ex.Message}",
                     Data = null
                 });
@@ -62,25 +75,30 @@ namespace SmartNav.Controllers
         {
             try
             {
-                var user = await _context.Users.FirstOrDefaultAsync(u => u.UserName == request.UserName);
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
 
                 if (user == null || !_passwordService.VerifyPassword(request.Password, user.Password))
                 {
-                    return Unauthorized(new ApiResponse<object> { Status = 401, Message = "Invalid credentials", Data = null });
+                    return Ok(new ApiResponse<object> { Status = "User error", Message = "Invalid credentials", Data = null });
                 }
 
                 var resultData = new { user.Id, user.UserName, user.Name, user.Surname, user.Phone };
 
                 return Ok(new ApiResponse<object>
                 {
-                    Status = 200,
+                    Status = "success",
                     Message = "Login successful",
                     Data = resultData
                 });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new ApiResponse<string> { Status = 500, Message = ex.Message, Data = null });
+                return StatusCode(500, new ApiResponse<string> 
+                {
+                    Status = "error",
+                    Message = ex.Message,
+                    Data = null 
+                });
             }
         }
 
@@ -90,14 +108,14 @@ namespace SmartNav.Controllers
             try
             {
                 var user = await _context.Users.FindAsync(id);
-                if (user == null) return NotFound(new ApiResponse<object> { Status = 404, Message = "User not found", Data = null });
+                if (user == null) return NotFound(new ApiResponse<object> { Status = "User error", Message = "User not found", Data = null });
 
                 var resultData = new { user.Id, user.UserName, user.Name, user.Surname, user.Phone };
-                return Ok(new ApiResponse<object> { Status = 200, Message = "User found", Data = resultData });
+                return Ok(new ApiResponse<object> { Status = "success", Message = "User found", Data = resultData });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new ApiResponse<string> { Status = 500, Message = ex.Message, Data = null });
+                return StatusCode(500, new ApiResponse<string> { Status = "error", Message = ex.Message, Data = null });
             }
         }
 
@@ -107,7 +125,7 @@ namespace SmartNav.Controllers
             try
             {
                 var user = await _context.Users.FindAsync(id);
-                if (user == null) return NotFound(new ApiResponse<object> { Status = 404, Message = "User not found", Data = null });
+                if (user == null) return NotFound(new ApiResponse<object> { Status = "User error", Message = "User not found", Data = null });
 
                 user.Name = updatedUser.Name;
                 user.Surname = updatedUser.Surname;
@@ -117,11 +135,11 @@ namespace SmartNav.Controllers
                 await _context.SaveChangesAsync();
 
                 var resultData = new { user.Id, user.UserName, user.Name, user.Surname, user.Phone };
-                return Ok(new ApiResponse<object> { Status = 200, Message = "Update successful", Data = resultData });
+                return Ok(new ApiResponse<object> { Status = "success", Message = "Update successful", Data = resultData });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new ApiResponse<string> { Status = 500, Message = ex.Message, Data = null });
+                return StatusCode(500, new ApiResponse<string> { Status = "error", Message = ex.Message, Data = null });
             }
         }
 
@@ -131,20 +149,20 @@ namespace SmartNav.Controllers
             try
             {
                 var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-                if (user == null) return NotFound(new ApiResponse<object> { Status = 404, Message = "Email not found", Data = null });
+                if (user == null) return NotFound(new ApiResponse<object> { Status = "User error", Message = "Email not found", Data = null });
 
                 // Email logic goes here...
 
                 return Ok(new ApiResponse<object>
                 {
-                    Status = 200,
+                    Status = "success",
                     Message = "Recovery link sent",
                     Data = null
                 });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new ApiResponse<string> { Status = 500, Message = ex.Message, Data = null });
+                return StatusCode(500, new ApiResponse<string> { Status = "error", Message = ex.Message, Data = null });
             }
         }
 
@@ -152,7 +170,7 @@ namespace SmartNav.Controllers
 
     public class LoginRequest
     {
-        public string UserName { get; set; }
+        public string Email { get; set; }
         public string Password { get; set; }
     }
 }

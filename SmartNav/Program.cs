@@ -14,6 +14,20 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAngular",
+        policy =>
+        {
+            policy
+                .WithOrigins("http://localhost:4200") // dev
+                                                      // .WithOrigins("https://your-angular-domain.com") // prod
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials(); // only if using cookies / auth
+        });
+});
+
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 
 var app = builder.Build();
@@ -26,6 +40,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors("AllowAngular");
 
 app.UseAuthorization();
 
