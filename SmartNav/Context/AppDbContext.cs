@@ -29,6 +29,9 @@ namespace SmartNav.Data
                 entity.Property(e => e.UserName).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.Email).IsRequired().HasMaxLength(100);
             });
+
+            modelBuilder.Entity<User>()
+            .ToTable(tb => tb.HasTrigger("trg_users_UpdateTimestamp"));
         }
     }
 }

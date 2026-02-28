@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SmartNav.Data;
+using SmartNav.Interfaces;
 using SmartNav.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,6 +30,7 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddScoped<IPasswordService, PasswordService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
 
 var app = builder.Build();
 
