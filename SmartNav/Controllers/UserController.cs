@@ -94,7 +94,7 @@ namespace SmartNav.Controllers
                     return Ok(new ApiResponse<object> { Status = "User error", Message = "User exists but his email is not verified", Data = null });
                 }
 
-                var resultData = new { user.Id, user.UserName, user.Name, user.Surname, user.Phone };
+                var resultData = new { user.Id, user.UserName, user.Name, user.Surname, user.Phone, user.IsVerified };
 
                 return Ok(new ApiResponse<object>
                 {
@@ -196,7 +196,7 @@ namespace SmartNav.Controllers
             return Content(GetHtmlResponse("Success!", "Your email has been verified. You can now close this window and log in to the app.", "#2ecc71"), "text/html");
         }
 
-        private string GetHtmlResponse(string title, string message, string color)
+        private static string GetHtmlResponse(string title, string message, string color)
         {
             return $@"
             <html>
@@ -204,9 +204,6 @@ namespace SmartNav.Controllers
                     <div style='text-align: center; padding: 50px; background: white; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 400px;'>
                         <h1 style='color: {color};'>{title}</h1>
                         <p style='color: #333; font-size: 18px;'>{message}</p>
-                        <div style='margin-top: 20px;'>
-                            <span style='font-size: 50px;'>{(title == "Success!" ? "✅" : "❌")}</span>
-                        </div>
                     </div>
                 </body>
             </html>";
