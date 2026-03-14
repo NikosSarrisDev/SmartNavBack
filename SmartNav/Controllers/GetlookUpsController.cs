@@ -20,7 +20,7 @@ namespace SmartNav.Controllers
             _context = context;
         }
 
-        [HttpGet("Avatars")]
+        [HttpPost("Avatars")]
         public async Task<ActionResult> GetAvatars()
         {
             var avatars = await _context.Avatars.ToListAsync();
@@ -30,10 +30,10 @@ namespace SmartNav.Controllers
                 return NotFound("Δεν βρέθηκαν Avatars.");
             }
 
-            return Ok(avatars);
+            return Ok(new { data = avatars });
         }
 
-        [HttpGet("Roles")]
+        [HttpPost("Roles")]
         public async Task<ActionResult> GetRoles()
         {
             var roles = await _context.Roles.ToListAsync();
@@ -43,7 +43,7 @@ namespace SmartNav.Controllers
                 return NotFound("Δεν βρέθηκαν Ρόλοι.");
             }
 
-            return Ok(roles);
+            return Ok(new { data = roles });
         }
     }
 }
