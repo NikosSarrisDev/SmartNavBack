@@ -25,5 +25,7 @@ namespace SmartNav.Models
         [ForeignKey("AvatarId")]
         public virtual Avatar? Avatar { get; set; }
 
+        public virtual ICollection<Trip>? Trips { get; set; }
+
     }
 }
