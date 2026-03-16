@@ -94,7 +94,7 @@ namespace SmartNav.Controllers
                     return Ok(new ApiResponse<object> { Status = "User error", Message = "User exists but his email is not verified", Data = null });
                 }
 
-                var resultData = new { user.Id, user.UserName, user.Name, user.Surname, user.Phone, user.IsVerified };
+                var resultData = new { user.Id, user.UserName, user.Name, user.Email, user.Surname, user.Phone, user.IsVerified };
 
                 return Ok(new ApiResponse<object>
                 {
@@ -122,7 +122,7 @@ namespace SmartNav.Controllers
                 var user = await _context.Users.FindAsync(id);
                 if (user == null) return NotFound(new ApiResponse<object> { Status = "User error", Message = "User not found", Data = null });
 
-                var resultData = new { user.Id, user.UserName, user.Name, user.Surname, user.Phone };
+                var resultData = new { user.Id, user.UserName, user.Name, user.Email, user.Surname, user.Phone };
                 return Ok(new ApiResponse<object> { Status = "success", Message = "User found", Data = resultData });
             }
             catch (Exception ex)

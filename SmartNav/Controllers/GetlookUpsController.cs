@@ -45,5 +45,26 @@ namespace SmartNav.Controllers
 
             return Ok(new { data = roles });
         }
+
+        [HttpPost("CurrentUserRoleAndAvatar")]
+        public async Task<ActionResult> GetCurrentUserRole([FromBody] UserTripRequest request)
+        {
+            var data = await (from us in _context.Users
+                               join rl in _context.Roles on us.RoleId equals rl.RoleID
+                               join av in _context.Avatars on us.AvatarId equals av.Id
+                               where us.Id == request.UserId
+                               select new 
+                               {
+                                   rl.RoleName,
+                                   av.AvatarURL
+                               }).FirstOrDefaultAsync();
+
+            if (data == null)
+            {
+                return Ok(new { message = "No roles or avatar found for this user." });
+            }
+
+            return Ok(new { message = "success", data });
+        }
     }
 }

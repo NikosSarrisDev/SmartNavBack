@@ -21,7 +21,7 @@ namespace SmartNav.Controllers
         {
             _context.Trips.Add(trip);
             await _context.SaveChangesAsync();
-            return Ok(new { message = "Trip created", data = trip });
+            return Ok(new { message = "Trip created successfully", data = trip });
         }
 
         [HttpPost("ListAll")]
@@ -32,7 +32,7 @@ namespace SmartNav.Controllers
         }
 
         [HttpPost("GetUserTripDetails")]
-        public async Task<ActionResult> GetUserTripDetails([FromBody] UserTripInfoDTO request)
+        public async Task<ActionResult> GetUserTripDetails([FromBody] UserTripRequest request)
         {
             var query = await (from us in _context.Users
                                join tr in _context.Trips on us.Id equals tr.UserID
@@ -47,12 +47,22 @@ namespace SmartNav.Controllers
                                    Score = tr.Score
                                }).ToListAsync();
 
-            if (query == null || !query.Any())
+            var statistics = await _context.Trips
+                .Where(tr => tr.UserID == request.UserId)
+                .GroupBy(tr => tr.UserID)
+                .Select(g => new
+                {
+                    TotalTrips = g.Count(),
+                    TotalDistance = g.Sum(tr => tr.DistanceKM)
+                })
+                .FirstOrDefaultAsync();
+
+            if (query == null || !query.Any() || statistics == null)
             {
                 return Ok(new { message = "No trips found for this user." });
             }
 
-            return Ok(new { message = "success", data = query });
+            return Ok(new { message = "success", data = query, statistics = statistics });
         }
 
         [HttpPost("Update")]
@@ -71,9 +81,9 @@ namespace SmartNav.Controllers
         }
 
         [HttpPost("Delete")]
-        public async Task<ActionResult> DeleteTrip([FromBody] int id)
+        public async Task<ActionResult> DeleteTrip([FromBody] UserTripRequest request)
         {
-            var trip = await _context.Trips.FirstOrDefaultAsync(t => t.Id == id);
+            var trip = await _context.Trips.FirstOrDefaultAsync(t => t.Id == request.UserId);
             if (trip == null) return Ok(new { message = "Trip not found" });
 
             _context.Trips.Remove(trip);

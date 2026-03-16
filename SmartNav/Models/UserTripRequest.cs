@@ -1,6 +1,6 @@
 ﻿namespace SmartNav.Models
 {
-    public class UserTripInfoDTO
+    public class UserTripRequest
     {
         public int UserId { get; set; }
     }
