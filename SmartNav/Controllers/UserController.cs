@@ -6,6 +6,7 @@ using SmartNav.Data;
 using SmartNav.Interfaces;
 using SmartNav.Models;
 using SmartNav.Services;
+using System.Text.Json;
 
 namespace SmartNav.Controllers
 {
@@ -122,7 +123,7 @@ namespace SmartNav.Controllers
                 var user = await _context.Users.FindAsync(id);
                 if (user == null) return NotFound(new ApiResponse<object> { Status = "User error", Message = "User not found", Data = null });
 
-                var resultData = new { user.Id, user.UserName, user.Name, user.Email, user.Surname, user.Phone };
+                var resultData = new { user.Id, user.UserName, user.Name, user.Email, user.Surname, user.Phone, user.RoleId, user.AvatarId };
                 return Ok(new ApiResponse<object> { Status = "success", Message = "User found", Data = resultData });
             }
             catch (Exception ex)
@@ -131,22 +132,20 @@ namespace SmartNav.Controllers
             }
         }
 
-        [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateUserDetails(int id, [FromBody] User updatedUser)
+        [HttpPost("UpdateUserDetails")]
+        public async Task<IActionResult> UpdateUserDetails([FromBody] JsonElement request)
         {
             try
             {
-                var user = await _context.Users.FindAsync(id);
+                var user = await _context.Users.FindAsync(request.GetProperty("id").GetInt32());
                 if (user == null) return NotFound(new ApiResponse<object> { Status = "User error", Message = "User not found", Data = null });
 
-                user.Name = updatedUser.Name;
-                user.Surname = updatedUser.Surname;
-                user.Email = updatedUser.Email;
-                user.Phone = updatedUser.Phone;
+                user.UserName = request.GetProperty("userName").GetString();
+                user.AvatarId = request.GetProperty("avatarId").GetInt32();
 
                 await _context.SaveChangesAsync();
 
-                var resultData = new { user.Id, user.UserName, user.Name, user.Surname, user.Phone };
+                var resultData = new { user.Id, user.UserName, user.AvatarId };
                 return Ok(new ApiResponse<object> { Status = "success", Message = "Update successful", Data = resultData });
             }
             catch (Exception ex)
