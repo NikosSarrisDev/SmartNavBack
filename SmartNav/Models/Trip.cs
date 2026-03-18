@@ -13,6 +13,8 @@ namespace SmartNav.Models
 
         public string? Destination { get; set; }
 
+        public string? Departure { get; set; }
+
         public decimal DistanceKM { get; set; }
 
         public decimal Score { get; set; }

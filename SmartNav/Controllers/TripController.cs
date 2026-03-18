@@ -43,9 +43,10 @@ namespace SmartNav.Controllers
                                    UserID = tr.UserID,
                                    TripDate = tr.TripDate,
                                    Destination = tr.Destination,
+                                   Departure = tr.Departure,
                                    DistanceKM = tr.DistanceKM,
                                    Score = tr.Score
-                               }).ToListAsync();
+                               }).Take(4).ToListAsync();
 
             var statistics = await _context.Trips
                 .Where(tr => tr.UserID == request.UserId)
@@ -72,6 +73,7 @@ namespace SmartNav.Controllers
             if (trip == null) return Ok(new { message = "Trip not found" });
 
             trip.Destination = updatedTrip.Destination;
+            trip.Departure = updatedTrip.Departure;
             trip.DistanceKM = updatedTrip.DistanceKM;
             trip.Score = updatedTrip.Score;
             trip.TripDate = updatedTrip.TripDate;
