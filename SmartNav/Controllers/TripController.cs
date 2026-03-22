@@ -46,7 +46,7 @@ namespace SmartNav.Controllers
                                    Departure = tr.Departure,
                                    DistanceKM = tr.DistanceKM,
                                    Score = tr.Score
-                               }).Take(4).ToListAsync();
+                               }).OrderByDescending(t => t.TripDate).Take(4).ToListAsync();
 
             var statistics = await _context.Trips
                 .Where(tr => tr.UserID == request.UserId)
@@ -64,6 +64,36 @@ namespace SmartNav.Controllers
             }
 
             return Ok(new { message = "success", data = query, statistics = statistics });
+        }
+
+        [HttpPost("GetAISuggestions")]
+        public async Task<ActionResult> GetAISuggestions([FromBody] int userId)
+        {
+            // Παίρνουμε τα τελευταία 10 ταξίδια του χρήστη
+            var lastTrips = await _context.Trips
+                .Where(t => t.UserID == userId)
+                .OrderByDescending(t => t.TripDate)
+                .Take(10)
+                .ToListAsync();
+
+            if (lastTrips.Count < 3)
+                return Ok(new { message = "Need more data to learn..." });
+
+            // Μετράμε πόσες φορές ο χρήστης επέλεξε 'Fastest' ενώ του προτείναμε 'Eco'
+            int ecoIgnoredCount = lastTrips.Count(t => t.SuggestedPreference == "Eco" && t.ChosenPreference == "Fastest");
+
+            // Αν το έχει κάνει πάνω από 3 φορές στα τελευταία 10 ταξίδια
+            if (ecoIgnoredCount >= 3)
+            {
+                return Ok(new
+                {
+                    aiDetectedPattern = true,
+                    suggestedChange = "Fastest",
+                    message = "Παρατηρήσαμε ότι συχνά προτιμάτε τη γρηγορότερη διαδρομή παρόλο που έχετε επιλέξει Eco. Θέλετε να αλλάξουμε την προτίμησή σας σε Fastest;"
+                });
+            }
+
+            return Ok(new { aiDetectedPattern = false });
         }
 
         [HttpPost("Update")]

@@ -7,17 +7,21 @@ namespace SmartNav.Models
     public class Trip
     {
         [Key]
-        public int Id { get; set; }
+        public int? Id { get; set; }
 
-        public int UserID { get; set; }
+        public int? UserID { get; set; }
 
         public string? Destination { get; set; }
 
         public string? Departure { get; set; }
 
-        public decimal DistanceKM { get; set; }
+        public decimal? DistanceKM { get; set; }
 
-        public decimal Score { get; set; }
+        public decimal? Score { get; set; }
+
+        public string? SuggestedPreference { get; set; }
+
+        public string? ChosenPreference { get; set; }
 
         public DateTime TripDate { get; set; }
 

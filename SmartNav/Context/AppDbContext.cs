@@ -14,6 +14,7 @@ namespace SmartNav.Data
         public DbSet<Avatar> Avatars { get; set; }
         public DbSet<Role> Roles { get; set; }
         public DbSet<Trip> Trips { get; set; }
+        public DbSet<Preference> Preferences { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

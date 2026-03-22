@@ -46,6 +46,39 @@ namespace SmartNav.Controllers
             return Ok(new { data = roles });
         }
 
+        [HttpPost("Preference")]
+        public async Task<ActionResult> GetPreference()
+        {
+            var preferences = await _context.Preferences.ToListAsync();
+
+            if (preferences == null || !preferences.Any())
+            {
+                return NotFound("Δεν βρέθηκαν Προτιμήσεις.");
+            }
+
+            return Ok(new { data = preferences });
+        }
+
+        [HttpPost("CurrentUserActivePreference")]
+        public async Task<ActionResult> GetCurrentUserActivePreference([FromBody] UserTripRequest request)
+        {
+            var data = await (from us in _context.Users
+                              join pf in _context.Preferences on us.PreferenceId equals pf.Id
+                              where us.Id == request.UserId
+                              select new
+                              {
+                                  ActivePreference = pf.Id,
+                                  pf.Label
+                              }).ToListAsync();
+
+            if (data == null)
+            {
+                return Ok(new { message = "No preferences found for this user." });
+            }
+
+            return Ok(new { message = "success", data });
+        }
+
         [HttpPost("CurrentUserRoleAndAvatar")]
         public async Task<ActionResult> GetCurrentUserRole([FromBody] UserTripRequest request)
         {
