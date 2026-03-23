@@ -140,12 +140,25 @@ namespace SmartNav.Controllers
                 var user = await _context.Users.FindAsync(request.GetProperty("id").GetInt32());
                 if (user == null) return NotFound(new ApiResponse<object> { Status = "User error", Message = "User not found", Data = null });
 
-                user.UserName = request.GetProperty("userName").GetString();
-                user.AvatarId = request.GetProperty("avatarId").GetInt32();
+                if (request.TryGetProperty("userName", out var nameEl) && nameEl.ValueKind != JsonValueKind.Null)
+                {
+                    string newName = nameEl.GetString();
+                    if (!string.IsNullOrEmpty(newName)) user.UserName = newName;
+                }
+
+                if (request.TryGetProperty("avatarId", out var avatarEl))
+                {
+                    user.AvatarId = avatarEl.GetInt32();
+                }
+
+                if (request.TryGetProperty("preferenceId", out var prefEl))
+                {
+                    user.PreferenceId = prefEl.GetInt32();
+                }
 
                 await _context.SaveChangesAsync();
 
-                var resultData = new { user.Id, user.UserName, user.AvatarId };
+                var resultData = new { user.Id, user.UserName, user.AvatarId, user.PreferenceId };
                 return Ok(new ApiResponse<object> { Status = "success", Message = "Update successful", Data = resultData });
             }
             catch (Exception ex)
@@ -155,11 +168,16 @@ namespace SmartNav.Controllers
         }
 
         [HttpPost("forgotPasswordSendEmail")]
-        public async Task<IActionResult> ForgotPassword([FromQuery] string email)
+        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
         {
             try
             {
-                var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+                if (request == null || string.IsNullOrWhiteSpace(request.Email))
+                {
+                    return BadRequest(new ApiResponse<object> { Status = "User error", Message = "Email is required", Data = null });
+                }
+
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
                 if (user == null) return NotFound(new ApiResponse<object> { Status = "User error", Message = "Email not found", Data = null });
 
                 // Email logic goes here...
@@ -214,5 +232,10 @@ namespace SmartNav.Controllers
     {
         public string Email { get; set; }
         public string Password { get; set; }
+    }
+
+    public class ForgotPasswordRequest
+    {
+        public string Email { get; set; }
     }
 }

@@ -67,33 +67,27 @@ namespace SmartNav.Controllers
         }
 
         [HttpPost("GetAISuggestions")]
-        public async Task<ActionResult> GetAISuggestions([FromBody] int userId)
+        public async Task<string> AnalyzeUserBehavior(int userId)
         {
-            // Παίρνουμε τα τελευταία 10 ταξίδια του χρήστη
-            var lastTrips = await _context.Trips
+            var history = await _context.Trips
                 .Where(t => t.UserID == userId)
                 .OrderByDescending(t => t.TripDate)
-                .Take(10)
+                .Take(5)
                 .ToListAsync();
 
-            if (lastTrips.Count < 3)
-                return Ok(new { message = "Need more data to learn..." });
+            int deviations = history.Count(t => t.SuggestedPreference != t.ChosenPreference);
 
-            // Μετράμε πόσες φορές ο χρήστης επέλεξε 'Fastest' ενώ του προτείναμε 'Eco'
-            int ecoIgnoredCount = lastTrips.Count(t => t.SuggestedPreference == "Eco" && t.ChosenPreference == "Fastest");
-
-            // Αν το έχει κάνει πάνω από 3 φορές στα τελευταία 10 ταξίδια
-            if (ecoIgnoredCount >= 3)
+            if (deviations >= 3)
             {
-                return Ok(new
-                {
-                    aiDetectedPattern = true,
-                    suggestedChange = "Fastest",
-                    message = "Παρατηρήσαμε ότι συχνά προτιμάτε τη γρηγορότερη διαδρομή παρόλο που έχετε επιλέξει Eco. Θέλετε να αλλάξουμε την προτίμησή σας σε Fastest;"
-                });
+                var mostFrequentChosen = history
+                    .GroupBy(t => t.ChosenPreference)
+                    .OrderByDescending(g => g.Count())
+                    .First().Key;
+
+                return $"AI Observation: Φαίνεται να προτιμάτε τη διαδρομή '{mostFrequentChosen}'. Θέλετε να την ορίσουμε ως προεπιλογή;";
             }
 
-            return Ok(new { aiDetectedPattern = false });
+            return null;
         }
 
         [HttpPost("Update")]
@@ -113,9 +107,9 @@ namespace SmartNav.Controllers
         }
 
         [HttpPost("Delete")]
-        public async Task<ActionResult> DeleteTrip([FromBody] UserTripRequest request)
+        public async Task<ActionResult> DeleteTrip([FromBody] TripDeleteRequest request)
         {
-            var trip = await _context.Trips.FirstOrDefaultAsync(t => t.Id == request.UserId);
+            var trip = await _context.Trips.FirstOrDefaultAsync(t => t.Id == request.TripId && t.UserID == request.UserId);
             if (trip == null) return Ok(new { message = "Trip not found" });
 
             _context.Trips.Remove(trip);
