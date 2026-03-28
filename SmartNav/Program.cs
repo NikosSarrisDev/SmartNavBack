@@ -31,6 +31,7 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddHttpClient<IAiSuggestionService, AiSuggestionService>();
 
 var app = builder.Build();
 

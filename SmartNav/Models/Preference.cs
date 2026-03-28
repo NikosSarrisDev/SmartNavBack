@@ -15,5 +15,7 @@ namespace SmartNav.Models
         public string? Icon { get; set; }
 
         public string? TranslationField { get; set; }
+
+        public string? Prompt { get; set; }
     }
 }

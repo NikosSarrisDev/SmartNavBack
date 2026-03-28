@@ -1,6 +1,7 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartNav.Data;
+using SmartNav.Interfaces;
 using SmartNav.Models;
 
 namespace SmartNav.Controllers
@@ -10,15 +11,50 @@ namespace SmartNav.Controllers
     public class TripController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IAiSuggestionService _aiSuggestionService;
+        private const decimal DuplicateDistanceToleranceKm = 0.30m;
+        private const int DuplicateTimeWindowMinutes = 30;
 
-        public TripController(AppDbContext context)
+        public TripController(AppDbContext context, IAiSuggestionService aiSuggestionService)
         {
             _context = context;
+            _aiSuggestionService = aiSuggestionService;
         }
 
         [HttpPost("Create")]
         public async Task<ActionResult> CreateTrip([FromBody] Trip trip)
         {
+            if (trip.UserID == null || trip.UserID <= 0)
+            {
+                return BadRequest(new { message = "UserID is required." });
+            }
+
+            if (string.IsNullOrWhiteSpace(trip.SuggestedPreference))
+            {
+                trip.SuggestedPreference = trip.ChosenPreference;
+            }
+
+            var incomingTripDate = trip.TripDate == default ? DateTime.UtcNow : trip.TripDate;
+            trip.TripDate = incomingTripDate;
+
+            var candidateWindowStart = incomingTripDate.AddMinutes(-DuplicateTimeWindowMinutes);
+            var candidateWindowEnd = incomingTripDate.AddMinutes(DuplicateTimeWindowMinutes);
+
+            var existingTrips = await _context.Trips
+                .Where(t => t.UserID == trip.UserID && t.TripDate >= candidateWindowStart && t.TripDate <= candidateWindowEnd)
+                .ToListAsync();
+
+            var duplicateTrip = existingTrips.FirstOrDefault(existing => IsSameTrip(existing, trip));
+            if (duplicateTrip != null)
+            {
+                return Ok(new
+                {
+                    message = "Trip already exists. Existing record returned.",
+                    duplicate = true,
+                    data = duplicateTrip
+                });
+            }
+
             _context.Trips.Add(trip);
             await _context.SaveChangesAsync();
             return Ok(new { message = "Trip created successfully", data = trip });
@@ -38,7 +74,7 @@ namespace SmartNav.Controllers
                                join tr in _context.Trips on us.Id equals tr.UserID
                                where us.Id == request.UserId
                                select new Trip
-                               { 
+                               {
                                    Id = tr.Id,
                                    UserID = tr.UserID,
                                    TripDate = tr.TripDate,
@@ -67,27 +103,26 @@ namespace SmartNav.Controllers
         }
 
         [HttpPost("GetAISuggestions")]
-        public async Task<string> AnalyzeUserBehavior(int userId)
+        public async Task<ActionResult> AnalyzeUserBehavior([FromBody] UserTripRequest request)
         {
             var history = await _context.Trips
-                .Where(t => t.UserID == userId)
+                .Where(t => t.UserID == request.UserId)
                 .OrderByDescending(t => t.TripDate)
-                .Take(5)
+                .Take(20)
                 .ToListAsync();
 
-            int deviations = history.Count(t => t.SuggestedPreference != t.ChosenPreference);
+            var preferenceCodes = await _context.Preferences
+                .Where(p => !string.IsNullOrWhiteSpace(p.Code))
+                .Select(p => p.Code!)
+                .ToListAsync();
 
-            if (deviations >= 3)
+            var suggestion = await _aiSuggestionService.GetSuggestedPreferenceAsync(history, preferenceCodes);
+
+            return Ok(new
             {
-                var mostFrequentChosen = history
-                    .GroupBy(t => t.ChosenPreference)
-                    .OrderByDescending(g => g.Count())
-                    .First().Key;
-
-                return $"AI Observation: Φαίνεται να προτιμάτε τη διαδρομή '{mostFrequentChosen}'. Θέλετε να την ορίσουμε ως προεπιλογή;";
-            }
-
-            return null;
+                message = "success",
+                data = suggestion
+            });
         }
 
         [HttpPost("Update")]
@@ -115,6 +150,43 @@ namespace SmartNav.Controllers
             _context.Trips.Remove(trip);
             await _context.SaveChangesAsync();
             return Ok(new { message = "Deleted successfully" });
+        }
+
+        private static bool IsSameTrip(Trip existingTrip, Trip incomingTrip)
+        {
+            if (existingTrip.UserID != incomingTrip.UserID)
+            {
+                return false;
+            }
+
+            var sameDestination = NormalizeText(existingTrip.Destination) == NormalizeText(incomingTrip.Destination);
+            var sameDeparture = NormalizeText(existingTrip.Departure) == NormalizeText(incomingTrip.Departure);
+            var sameChosenPreference = NormalizeText(existingTrip.ChosenPreference) == NormalizeText(incomingTrip.ChosenPreference);
+            var sameSuggestedPreference = NormalizeText(existingTrip.SuggestedPreference) == NormalizeText(incomingTrip.SuggestedPreference);
+
+            if (!sameDestination || !sameDeparture || !sameChosenPreference || !sameSuggestedPreference)
+            {
+                return false;
+            }
+
+            if (existingTrip.DistanceKM.HasValue && incomingTrip.DistanceKM.HasValue)
+            {
+                var distanceDiff = Math.Abs(existingTrip.DistanceKM.Value - incomingTrip.DistanceKM.Value);
+                if (distanceDiff > DuplicateDistanceToleranceKm)
+                {
+                    return false;
+                }
+            }
+
+            var tripDateDiff = Math.Abs((existingTrip.TripDate - incomingTrip.TripDate).TotalMinutes);
+            return tripDateDiff <= DuplicateTimeWindowMinutes;
+        }
+
+        private static string NormalizeText(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value)
+                ? string.Empty
+                : value.Trim().ToUpperInvariant();
         }
     }
 }

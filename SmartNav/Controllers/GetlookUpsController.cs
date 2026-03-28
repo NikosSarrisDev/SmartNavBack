@@ -68,7 +68,7 @@ namespace SmartNav.Controllers
                               select new
                               {
                                   ActivePreference = pf.Id,
-                                  pf.Label
+                                  pf.Code
                               }).ToListAsync();
 
             if (data == null)
