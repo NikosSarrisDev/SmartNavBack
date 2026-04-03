@@ -22,12 +22,31 @@ namespace SmartNav.Controllers
         }
 
         [HttpPost("Create")]
-        public async Task<ActionResult> CreateTrip([FromBody] Trip trip)
+        public async Task<ActionResult> CreateTrip([FromBody] TripCreateRequest request)
         {
-            if (trip.UserID == null || trip.UserID <= 0)
+            if (request.UserID == null || request.UserID <= 0)
             {
                 return BadRequest(new { message = "UserID is required." });
             }
+
+            var resolvedVehicleId = await ResolveVehicleIdAsync(request);
+            if (resolvedVehicleId == -1)
+            {
+                return BadRequest(new { message = "Invalid vehicle option." });
+            }
+
+            var trip = new Trip
+            {
+                UserID = request.UserID,
+                Destination = request.Destination,
+                Departure = request.Departure,
+                DistanceKM = request.DistanceKM,
+                Score = request.Score,
+                SuggestedPreference = request.SuggestedPreference,
+                ChosenPreference = request.ChosenPreference,
+                TripDate = request.TripDate,
+                VehicleID = resolvedVehicleId > 0 ? resolvedVehicleId : null
+            };
 
             if (string.IsNullOrWhiteSpace(trip.SuggestedPreference))
             {
@@ -57,7 +76,50 @@ namespace SmartNav.Controllers
 
             _context.Trips.Add(trip);
             await _context.SaveChangesAsync();
-            return Ok(new { message = "Trip created successfully", data = trip });
+
+            var stations = BuildStations(request.Stations, trip.Id ?? 0);
+            if (stations.Any())
+            {
+                _context.Stations.AddRange(stations);
+                await _context.SaveChangesAsync();
+            }
+
+            var createdTrip = await _context.Trips
+                .Where(t => t.Id == trip.Id)
+                .Select(t => new
+                {
+                    t.Id,
+                    t.UserID,
+                    t.Departure,
+                    t.Destination,
+                    t.DistanceKM,
+                    t.Score,
+                    t.SuggestedPreference,
+                    t.ChosenPreference,
+                    t.TripDate,
+                    t.VehicleID,
+                    VehicleCode = t.Vehicle != null ? t.Vehicle.Code : null,
+                    Stations = t.Stations!
+                        .OrderBy(s => s.Position)
+                        .Select(s => new
+                        {
+                            s.Id,
+                            s.Street,
+                            s.Number,
+                            s.CityArea,
+                            s.PostalCode,
+                            s.Position
+                        })
+                        .ToList()
+                })
+                .FirstOrDefaultAsync(t => t.Id == trip.Id);
+
+            if (createdTrip == null)
+            {
+                return Ok(new { message = "Trip created successfully", data = trip });
+            }
+
+            return Ok(new { message = "Trip created successfully", data = createdTrip });
         }
 
         [HttpPost("ListAll")]
@@ -81,7 +143,8 @@ namespace SmartNav.Controllers
                                    Destination = tr.Destination,
                                    Departure = tr.Departure,
                                    DistanceKM = tr.DistanceKM,
-                                   Score = tr.Score
+                                   Score = tr.Score,
+                                   VehicleID = tr.VehicleID
                                }).OrderByDescending(t => t.TripDate).Take(4).ToListAsync();
 
             var statistics = await _context.Trips
@@ -136,6 +199,7 @@ namespace SmartNav.Controllers
             trip.DistanceKM = updatedTrip.DistanceKM;
             trip.Score = updatedTrip.Score;
             trip.TripDate = updatedTrip.TripDate;
+            trip.VehicleID = updatedTrip.VehicleID;
 
             await _context.SaveChangesAsync();
             return Ok(new { message = "Updated successfully", data = trip });
@@ -163,8 +227,9 @@ namespace SmartNav.Controllers
             var sameDeparture = NormalizeText(existingTrip.Departure) == NormalizeText(incomingTrip.Departure);
             var sameChosenPreference = NormalizeText(existingTrip.ChosenPreference) == NormalizeText(incomingTrip.ChosenPreference);
             var sameSuggestedPreference = NormalizeText(existingTrip.SuggestedPreference) == NormalizeText(incomingTrip.SuggestedPreference);
+            var sameVehicle = existingTrip.VehicleID == incomingTrip.VehicleID;
 
-            if (!sameDestination || !sameDeparture || !sameChosenPreference || !sameSuggestedPreference)
+            if (!sameDestination || !sameDeparture || !sameChosenPreference || !sameSuggestedPreference || !sameVehicle)
             {
                 return false;
             }
@@ -187,6 +252,56 @@ namespace SmartNav.Controllers
             return string.IsNullOrWhiteSpace(value)
                 ? string.Empty
                 : value.Trim().ToUpperInvariant();
+        }
+
+        private async Task<int> ResolveVehicleIdAsync(TripCreateRequest request)
+        {
+            if (request.VehicleID.HasValue && request.VehicleID.Value > 0)
+            {
+                var exists = await _context.Vehicles.AnyAsync(v => v.Id == request.VehicleID.Value);
+                return exists ? request.VehicleID.Value : -1;
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.VehicleCode))
+            {
+                var vehicleCode = request.VehicleCode.Trim().ToLowerInvariant();
+                var vehicle = await _context.Vehicles.FirstOrDefaultAsync(v => v.Code != null && v.Code.ToLower() == vehicleCode);
+                return vehicle?.Id ?? -1;
+            }
+
+            return 0;
+        }
+
+        private static List<Station> BuildStations(IEnumerable<StationCreateRequest>? incomingStations, int tripId)
+        {
+            if (tripId <= 0 || incomingStations == null)
+            {
+                return new List<Station>();
+            }
+
+            var stations = incomingStations
+                .Select((station, index) => new Station
+                {
+                    TripID = tripId,
+                    Street = station.Street?.Trim(),
+                    Number = station.Number?.Trim(),
+                    CityArea = station.CityArea?.Trim(),
+                    PostalCode = station.PostalCode?.Trim(),
+                    Position = station.Position.HasValue && station.Position.Value > 0 ? station.Position.Value : index + 1
+                })
+                .Where(HasAddressData)
+                .ToList();
+
+            return stations;
+        }
+
+        private static bool HasAddressData(Station station)
+        {
+            return
+                !string.IsNullOrWhiteSpace(station.Street) ||
+                !string.IsNullOrWhiteSpace(station.Number) ||
+                !string.IsNullOrWhiteSpace(station.CityArea) ||
+                !string.IsNullOrWhiteSpace(station.PostalCode);
         }
     }
 }

@@ -1,14 +1,7 @@
-﻿using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
-
 namespace SmartNav.Models
 {
-    [Table("Trips")]
-    public class Trip
+    public class TripCreateRequest
     {
-        [Key]
-        public int? Id { get; set; }
-
         public int? UserID { get; set; }
 
         public string? Destination { get; set; }
@@ -27,12 +20,21 @@ namespace SmartNav.Models
 
         public int? VehicleID { get; set; }
 
-        [ForeignKey("UserID")]
-        public virtual User? User { get; set; }
+        public string? VehicleCode { get; set; }
 
-        [ForeignKey("VehicleID")]
-        public virtual Vehicle? Vehicle { get; set; }
+        public List<StationCreateRequest>? Stations { get; set; }
+    }
 
-        public virtual ICollection<Station>? Stations { get; set; }
+    public class StationCreateRequest
+    {
+        public string? Street { get; set; }
+
+        public string? Number { get; set; }
+
+        public string? CityArea { get; set; }
+
+        public string? PostalCode { get; set; }
+
+        public int? Position { get; set; }
     }
 }

@@ -1,11 +1,7 @@
-ο»Ώusing Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartNav.Data;
-using SmartNav.Interfaces;
 using SmartNav.Models;
-using SmartNav.Services;
 
 namespace SmartNav.Controllers
 {
@@ -27,7 +23,7 @@ namespace SmartNav.Controllers
 
             if (avatars == null || !avatars.Any())
             {
-                return NotFound("Ξ”ΞµΞ½ Ξ²ΟΞ­ΞΈΞ·ΞΊΞ±Ξ½ Avatars.");
+                return NotFound("Δεν βρέθηκαν Avatars.");
             }
 
             return Ok(new { data = avatars });
@@ -40,7 +36,7 @@ namespace SmartNav.Controllers
 
             if (roles == null || !roles.Any())
             {
-                return NotFound("Ξ”ΞµΞ½ Ξ²ΟΞ­ΞΈΞ·ΞΊΞ±Ξ½ Ξ΅ΟΞ»ΞΏΞΉ.");
+                return NotFound("Δεν βρέθηκαν Ρόλοι.");
             }
 
             return Ok(new { data = roles });
@@ -53,10 +49,25 @@ namespace SmartNav.Controllers
 
             if (preferences == null || !preferences.Any())
             {
-                return NotFound("Ξ”ΞµΞ½ Ξ²ΟΞ­ΞΈΞ·ΞΊΞ±Ξ½ Ξ ΟΞΏΟ„ΞΉΞΌΞ®ΟƒΞµΞΉΟ‚.");
+                return NotFound("Δεν βρέθηκαν Προτιμήσεις.");
             }
 
             return Ok(new { data = preferences });
+        }
+
+        [HttpPost("Vehicle")]
+        public async Task<ActionResult> GetVehicle()
+        {
+            var vehicles = await _context.Vehicles
+                .OrderBy(v => v.Id)
+                .ToListAsync();
+
+            if (vehicles == null || !vehicles.Any())
+            {
+                return NotFound("Δεν βρέθηκαν Οχήματα.");
+            }
+
+            return Ok(new { data = vehicles });
         }
 
         [HttpPost("CurrentUserActivePreference")]
@@ -86,7 +97,7 @@ namespace SmartNav.Controllers
                                join rl in _context.Roles on us.RoleId equals rl.RoleID
                                join av in _context.Avatars on us.AvatarId equals av.Id
                                where us.Id == request.UserId
-                               select new 
+                               select new
                                {
                                    rl.RoleName,
                                    av.AvatarURL
