@@ -65,14 +65,14 @@ namespace SmartNav.Data
                 entity.Property(s => s.Number).HasMaxLength(20);
                 entity.Property(s => s.CityArea).HasMaxLength(80);
                 entity.Property(s => s.PostalCode).HasMaxLength(20);
-                entity.Property(s => s.Position).IsRequired();
             });
 
             modelBuilder.Entity<Vehicle>().HasData(
                 new Vehicle { Id = 1, Code = "small", Label = "Small car", TranslationField = "FILTER_VEHICLE_SIZE_SMALL" },
                 new Vehicle { Id = 2, Code = "medium", Label = "SUV / Van", TranslationField = "FILTER_VEHICLE_SIZE_MEDIUM" },
                 new Vehicle { Id = 3, Code = "large", Label = "Large van", TranslationField = "FILTER_VEHICLE_SIZE_LARGE" },
-                new Vehicle { Id = 4, Code = "truck", Label = "Truck", TranslationField = "FILTER_VEHICLE_SIZE_TRUCK" }
+                new Vehicle { Id = 4, Code = "truck", Label = "Truck", TranslationField = "FILTER_VEHICLE_SIZE_TRUCK" },
+                new Vehicle { Id = 5, Code = "motorcycle", Label = "Motorcycle", TranslationField = "FILTER_VEHICLE_SIZE_MOTORCYCLE" }
             );
         }
     }

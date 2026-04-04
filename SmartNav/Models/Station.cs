@@ -19,7 +19,7 @@ namespace SmartNav.Models
 
         public string? PostalCode { get; set; }
 
-        public int Position { get; set; }
+        public int? Position { get; set; }
 
         [ForeignKey("TripID")]
         public virtual Trip? Trip { get; set; }

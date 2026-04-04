@@ -274,12 +274,12 @@ namespace SmartNav.Controllers
 
         private static List<Station> BuildStations(IEnumerable<StationCreateRequest>? incomingStations, int tripId)
         {
-            if (tripId <= 0 || incomingStations == null)
+            if (tripId <= 0)
             {
                 return new List<Station>();
             }
 
-            var stations = incomingStations
+            var stations = (incomingStations ?? Enumerable.Empty<StationCreateRequest>())
                 .Select((station, index) => new Station
                 {
                     TripID = tripId,
@@ -291,6 +291,22 @@ namespace SmartNav.Controllers
                 })
                 .Where(HasAddressData)
                 .ToList();
+
+            if (!stations.Any())
+            {
+                return new List<Station>
+                {
+                    new Station
+                    {
+                        TripID = tripId,
+                        Street = null,
+                        Number = null,
+                        CityArea = null,
+                        PostalCode = null,
+                        Position = null
+                    }
+                };
+            }
 
             return stations;
         }
