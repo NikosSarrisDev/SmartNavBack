@@ -17,6 +17,7 @@ namespace SmartNav.Data
         public DbSet<Preference> Preferences { get; set; }
         public DbSet<Station> Stations { get; set; }
         public DbSet<Vehicle> Vehicles { get; set; }
+        public DbSet<FilteredPreference> FilteredPreferences { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -66,6 +67,23 @@ namespace SmartNav.Data
                 entity.Property(s => s.CityArea).HasMaxLength(80);
                 entity.Property(s => s.PostalCode).HasMaxLength(20);
             });
+
+            modelBuilder.Entity<FilteredPreference>(entity =>
+            {
+                entity.Property(x => x.SelectedPreferenceCode).HasMaxLength(60);
+                entity.Property(x => x.SelectedPreferencePrompt).HasMaxLength(400);
+                entity.Property(x => x.VehicleSize).HasMaxLength(32);
+                entity.Property(x => x.TrafficTimeMode).HasMaxLength(24);
+                entity.Property(x => x.StationsJson).HasColumnType("nvarchar(max)");
+                entity.Property(x => x.AppliedAt).HasDefaultValueSql("SYSUTCDATETIME()");
+                entity.HasIndex(x => new { x.UserID, x.AppliedAt });
+            });
+
+            modelBuilder.Entity<FilteredPreference>()
+                .HasOne(x => x.User)
+                .WithMany(u => u.FilteredPreferences)
+                .HasForeignKey(x => x.UserID)
+                .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.Entity<Vehicle>().HasData(
                 new Vehicle { Id = 1, Code = "small", Label = "Small car", TranslationField = "FILTER_VEHICLE_SIZE_SMALL" },

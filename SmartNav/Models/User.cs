@@ -32,5 +32,7 @@ namespace SmartNav.Models
 
         public virtual ICollection<Trip>? Trips { get; set; }
 
+        public virtual ICollection<FilteredPreference>? FilteredPreferences { get; set; }
+
     }
 }

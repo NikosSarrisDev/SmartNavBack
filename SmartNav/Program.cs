@@ -46,6 +46,37 @@ app.UseHttpsRedirection();
 
 app.UseCors("AllowAngular");
 
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    await dbContext.Database.ExecuteSqlRawAsync(@"
+IF OBJECT_ID(N'[dbo].[FilteredPreference]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[FilteredPreference](
+        [Id] INT IDENTITY(1,1) NOT NULL,
+        [UserID] INT NULL,
+        [SelectedPreferenceCode] NVARCHAR(60) NULL,
+        [SelectedPreferencePrompt] NVARCHAR(400) NULL,
+        [VehicleSize] NVARCHAR(32) NULL,
+        [AvoidTolls] BIT NOT NULL CONSTRAINT [DF_FilteredPreference_AvoidTolls] DEFAULT(0),
+        [AvoidHighways] BIT NOT NULL CONSTRAINT [DF_FilteredPreference_AvoidHighways] DEFAULT(0),
+        [AvoidFerries] BIT NOT NULL CONSTRAINT [DF_FilteredPreference_AvoidFerries] DEFAULT(0),
+        [TrafficTimeMode] NVARCHAR(24) NULL,
+        [TrafficStartDateTime] DATETIME2 NULL,
+        [TrafficEndDateTime] DATETIME2 NULL,
+        [IncludeEvChargingStations] BIT NOT NULL CONSTRAINT [DF_FilteredPreference_IncludeEvChargingStations] DEFAULT(0),
+        [StationsJson] NVARCHAR(MAX) NULL,
+        [AppliedAt] DATETIME2 NOT NULL CONSTRAINT [DF_FilteredPreference_AppliedAt] DEFAULT(SYSUTCDATETIME()),
+        CONSTRAINT [PK_FilteredPreference] PRIMARY KEY CLUSTERED ([Id] ASC),
+        CONSTRAINT [FK_FilteredPreference_User_UserID] FOREIGN KEY ([UserID]) REFERENCES [dbo].[User]([Id]) ON DELETE SET NULL
+    );
+
+    CREATE INDEX [IX_FilteredPreference_UserID_AppliedAt]
+        ON [dbo].[FilteredPreference]([UserID], [AppliedAt]);
+END");
+}
+
 app.UseAuthorization();
 
 app.MapControllers();
