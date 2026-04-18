@@ -12,10 +12,6 @@ namespace SmartNav.Models
 
         public decimal? Score { get; set; }
 
-        public string? SuggestedPreference { get; set; }
-
-        public string? ChosenPreference { get; set; }
-
         public DateTime TripDate { get; set; }
 
         public int? VehicleID { get; set; }

@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartNav.Data;
-using SmartNav.Interfaces;
 using SmartNav.Models;
 
 namespace SmartNav.Controllers
@@ -11,14 +10,12 @@ namespace SmartNav.Controllers
     public class TripController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private readonly IAiSuggestionService _aiSuggestionService;
         private const decimal DuplicateDistanceToleranceKm = 0.30m;
         private const int DuplicateTimeWindowMinutes = 30;
 
-        public TripController(AppDbContext context, IAiSuggestionService aiSuggestionService)
+        public TripController(AppDbContext context)
         {
             _context = context;
-            _aiSuggestionService = aiSuggestionService;
         }
 
         [HttpPost("Create")]
@@ -42,16 +39,9 @@ namespace SmartNav.Controllers
                 Departure = request.Departure,
                 DistanceKM = request.DistanceKM,
                 Score = request.Score,
-                SuggestedPreference = request.SuggestedPreference,
-                ChosenPreference = request.ChosenPreference,
                 TripDate = request.TripDate,
                 VehicleID = resolvedVehicleId > 0 ? resolvedVehicleId : null
             };
-
-            if (string.IsNullOrWhiteSpace(trip.SuggestedPreference))
-            {
-                trip.SuggestedPreference = trip.ChosenPreference;
-            }
 
             var incomingTripDate = trip.TripDate == default ? DateTime.UtcNow : trip.TripDate;
             trip.TripDate = incomingTripDate;
@@ -94,8 +84,6 @@ namespace SmartNav.Controllers
                     t.Destination,
                     t.DistanceKM,
                     t.Score,
-                    t.SuggestedPreference,
-                    t.ChosenPreference,
                     t.TripDate,
                     t.VehicleID,
                     VehicleCode = t.Vehicle != null ? t.Vehicle.Code : null,
@@ -165,29 +153,6 @@ namespace SmartNav.Controllers
             return Ok(new { message = "success", data = query, statistics = statistics });
         }
 
-        [HttpPost("GetAISuggestions")]
-        public async Task<ActionResult> AnalyzeUserBehavior([FromBody] UserTripRequest request)
-        {
-            var history = await _context.Trips
-                .Where(t => t.UserID == request.UserId)
-                .OrderByDescending(t => t.TripDate)
-                .Take(20)
-                .ToListAsync();
-
-            var preferenceCodes = await _context.Preferences
-                .Where(p => !string.IsNullOrWhiteSpace(p.Code))
-                .Select(p => p.Code!)
-                .ToListAsync();
-
-            var suggestion = await _aiSuggestionService.GetSuggestedPreferenceAsync(history, preferenceCodes);
-
-            return Ok(new
-            {
-                message = "success",
-                data = suggestion
-            });
-        }
-
         [HttpPost("Update")]
         public async Task<ActionResult> UpdateTrip([FromBody] Trip updatedTrip)
         {
@@ -225,11 +190,9 @@ namespace SmartNav.Controllers
 
             var sameDestination = NormalizeText(existingTrip.Destination) == NormalizeText(incomingTrip.Destination);
             var sameDeparture = NormalizeText(existingTrip.Departure) == NormalizeText(incomingTrip.Departure);
-            var sameChosenPreference = NormalizeText(existingTrip.ChosenPreference) == NormalizeText(incomingTrip.ChosenPreference);
-            var sameSuggestedPreference = NormalizeText(existingTrip.SuggestedPreference) == NormalizeText(incomingTrip.SuggestedPreference);
             var sameVehicle = existingTrip.VehicleID == incomingTrip.VehicleID;
 
-            if (!sameDestination || !sameDeparture || !sameChosenPreference || !sameSuggestedPreference || !sameVehicle)
+            if (!sameDestination || !sameDeparture || !sameVehicle)
             {
                 return false;
             }
