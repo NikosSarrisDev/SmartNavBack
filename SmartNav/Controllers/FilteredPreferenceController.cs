@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartNav.Data;
 using SmartNav.Models;
+using System.Globalization;
+using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 
 namespace SmartNav.Controllers
@@ -11,10 +14,17 @@ namespace SmartNav.Controllers
     public class FilteredPreferenceController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IConfiguration _configuration;
 
-        public FilteredPreferenceController(AppDbContext context)
+        public FilteredPreferenceController(
+            AppDbContext context,
+            IHttpClientFactory httpClientFactory,
+            IConfiguration configuration)
         {
             _context = context;
+            _httpClientFactory = httpClientFactory;
+            _configuration = configuration;
         }
 
         [HttpPost("Create")]
@@ -70,16 +80,18 @@ namespace SmartNav.Controllers
                 return BadRequest(new { message = "UserId is required." });
             }
 
-            var entity = await _context.FilteredPreferences
+            var history = await _context.FilteredPreferences
                 .Where(x => x.UserID == request.UserId)
                 .OrderByDescending(x => x.AppliedAt)
-                .FirstOrDefaultAsync();
+                .Take(150)
+                .ToListAsync();
 
-            if (entity == null)
+            if (!history.Any())
             {
                 return Ok(new { message = "No filtered preference found for this user.", data = (FilteredPreferenceResolvedResponse?)null });
             }
 
+            var entity = await ResolveBestPreferenceAsync(history, HttpContext.RequestAborted);
             var resolved = MapEntityToResolvedResponse(entity);
             return Ok(new { message = "success", data = resolved });
         }
@@ -196,6 +208,292 @@ namespace SmartNav.Controllers
             }
 
             return JsonSerializer.Serialize(normalizedStations);
+        }
+
+        private async Task<FilteredPreference> ResolveBestPreferenceAsync(
+            IReadOnlyList<FilteredPreference> history,
+            CancellationToken cancellationToken)
+        {
+            if (history.Count == 1)
+            {
+                return history[0];
+            }
+
+            var aiSelectedId = await TryResolveBestPreferenceIdWithAiAsync(history, cancellationToken);
+            if (aiSelectedId.HasValue)
+            {
+                var aiSelected = history.FirstOrDefault(x => x.Id == aiSelectedId.Value);
+                if (aiSelected != null)
+                {
+                    return aiSelected;
+                }
+            }
+
+            return ResolveBestPreferenceFallback(history);
+        }
+
+        private async Task<int?> TryResolveBestPreferenceIdWithAiAsync(
+            IReadOnlyList<FilteredPreference> history,
+            CancellationToken cancellationToken)
+        {
+            var apiKey = _configuration["GeminiSettings:ApiKey"];
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                return null;
+            }
+
+            var model = _configuration["GeminiSettings:Model"] ?? "gemini-2.0-flash";
+            var requestItems = history
+                .Take(60)
+                .Select(item => new
+                {
+                    item.Id,
+                    item.AppliedAt,
+                    item.SelectedPreferenceCode,
+                    item.VehicleSize,
+                    item.AvoidTolls,
+                    item.AvoidHighways,
+                    item.AvoidFerries,
+                    item.TrafficTimeMode,
+                    item.IncludeEvChargingStations,
+                    Stations = DeserializeStations(item.StationsJson)
+                        .Select(station => new
+                        {
+                            station.Street,
+                            station.Number,
+                            station.CityArea,
+                            station.PostalCode
+                        })
+                        .ToList()
+                })
+                .ToList();
+
+            var prompt = $@"You receive a user's history of applied navigation filter sets.
+Select exactly ONE record id that best represents the user's likely preferred default filters.
+Prioritize repeated patterns and recent behavior.
+
+History JSON:
+{JsonSerializer.Serialize(requestItems)}
+
+Return ONLY JSON in this format:
+{{""selectedId"":123,""confidence"":0.0,""reason"":""short text""}}";
+
+            var body = new
+            {
+                contents = new[]
+                {
+                    new
+                    {
+                        parts = new[]
+                        {
+                            new
+                            {
+                                text = prompt
+                            }
+                        }
+                    }
+                },
+                generationConfig = new
+                {
+                    temperature = 0,
+                    topP = 0,
+                    topK = 1,
+                    maxOutputTokens = 140,
+                    responseMimeType = "application/json"
+                }
+            };
+
+            var payload = JsonSerializer.Serialize(body);
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
+
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(payload, Encoding.UTF8, "application/json")
+                };
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+                var client = _httpClientFactory.CreateClient();
+                using var response = await client.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
+
+                var raw = await response.Content.ReadAsStringAsync(cancellationToken);
+                var parsedId = ParseGeminiSelectionId(raw);
+                if (!parsedId.HasValue)
+                {
+                    return null;
+                }
+
+                return history.Any(item => item.Id == parsedId.Value) ? parsedId.Value : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static int? ParseGeminiSelectionId(string rawResponse)
+        {
+            using var rootDoc = JsonDocument.Parse(rawResponse);
+            if (!rootDoc.RootElement.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
+            {
+                return null;
+            }
+
+            var first = candidates[0];
+            if (!first.TryGetProperty("content", out var content) || !content.TryGetProperty("parts", out var parts) || parts.GetArrayLength() == 0)
+            {
+                return null;
+            }
+
+            var text = parts[0].GetProperty("text").GetString() ?? string.Empty;
+            text = text.Replace("```json", string.Empty, StringComparison.OrdinalIgnoreCase)
+                       .Replace("```", string.Empty, StringComparison.OrdinalIgnoreCase)
+                       .Trim();
+
+            var json = ExtractFirstJson(text);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return null;
+            }
+
+            using var parsed = JsonDocument.Parse(json);
+            if (!parsed.RootElement.TryGetProperty("selectedId", out var selectedIdElement))
+            {
+                return null;
+            }
+
+            return selectedIdElement.TryGetInt32(out var selectedId) ? selectedId : null;
+        }
+
+        private static string? ExtractFirstJson(string text)
+        {
+            var start = text.IndexOf('{');
+            if (start < 0) return null;
+
+            var depth = 0;
+            var inString = false;
+            var escaped = false;
+
+            for (var i = start; i < text.Length; i++)
+            {
+                var c = text[i];
+                if (inString)
+                {
+                    if (escaped)
+                    {
+                        escaped = false;
+                        continue;
+                    }
+
+                    if (c == '\\')
+                    {
+                        escaped = true;
+                        continue;
+                    }
+
+                    if (c == '"')
+                    {
+                        inString = false;
+                    }
+
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    inString = true;
+                    continue;
+                }
+
+                if (c == '{') depth++;
+                if (c == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        return text[start..(i + 1)];
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static FilteredPreference ResolveBestPreferenceFallback(IReadOnlyList<FilteredPreference> history)
+        {
+            var now = DateTime.UtcNow;
+            var bestGroup = history
+                .GroupBy(BuildPreferenceSignature)
+                .Select(group => new
+                {
+                    Items = group.ToList(),
+                    Score = group.Sum(item => CalculateRecencyWeight(item.AppliedAt, now))
+                })
+                .OrderByDescending(group => group.Score)
+                .ThenByDescending(group => group.Items.Count)
+                .ThenByDescending(group => group.Items.Max(item => item.AppliedAt))
+                .First();
+
+            return bestGroup.Items
+                .OrderByDescending(item => item.AppliedAt)
+                .First();
+        }
+
+        private static double CalculateRecencyWeight(DateTime appliedAt, DateTime nowUtc)
+        {
+            var days = Math.Max(0.0, (nowUtc - appliedAt).TotalDays);
+            return 1.0 / (1.0 + (days / 14.0));
+        }
+
+        private static string BuildPreferenceSignature(FilteredPreference item)
+        {
+            var selectedPreferenceCode = NormalizeText(item.SelectedPreferenceCode)?.ToUpperInvariant() ?? string.Empty;
+            var vehicleSize = NormalizeText(item.VehicleSize)?.ToUpperInvariant() ?? string.Empty;
+            var trafficTimeMode = NormalizeText(item.TrafficTimeMode)?.ToUpperInvariant() ?? string.Empty;
+            var startHour = item.TrafficStartDateTime.HasValue
+                ? item.TrafficStartDateTime.Value.ToString("HH", CultureInfo.InvariantCulture)
+                : string.Empty;
+            var endHour = item.TrafficEndDateTime.HasValue
+                ? item.TrafficEndDateTime.Value.ToString("HH", CultureInfo.InvariantCulture)
+                : string.Empty;
+            var stationFingerprint = BuildStationFingerprint(item.StationsJson);
+
+            return string.Join("|", new[]
+            {
+                selectedPreferenceCode,
+                vehicleSize,
+                item.AvoidTolls ? "1" : "0",
+                item.AvoidHighways ? "1" : "0",
+                item.AvoidFerries ? "1" : "0",
+                trafficTimeMode,
+                startHour,
+                endHour,
+                item.IncludeEvChargingStations ? "1" : "0",
+                stationFingerprint
+            });
+        }
+
+        private static string BuildStationFingerprint(string? stationsJson)
+        {
+            var stations = DeserializeStations(stationsJson);
+            if (!stations.Any())
+            {
+                return string.Empty;
+            }
+
+            return string.Join(";",
+                stations
+                    .Select(station =>
+                        $"{NormalizeText(station.Street)?.ToUpperInvariant() ?? string.Empty}|" +
+                        $"{NormalizeText(station.Number)?.ToUpperInvariant() ?? string.Empty}|" +
+                        $"{NormalizeText(station.CityArea)?.ToUpperInvariant() ?? string.Empty}|" +
+                        $"{NormalizeText(station.PostalCode)?.ToUpperInvariant() ?? string.Empty}")
+                    .OrderBy(value => value));
         }
 
         private static FilteredPreferenceResolvedResponse MapEntityToResolvedResponse(FilteredPreference entity)
