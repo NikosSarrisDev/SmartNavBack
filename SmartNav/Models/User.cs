@@ -34,5 +34,7 @@ namespace SmartNav.Models
 
         public virtual ICollection<FilteredPreference>? FilteredPreferences { get; set; }
 
+        public virtual ICollection<Preset>? Presets { get; set; }
+
     }
 }

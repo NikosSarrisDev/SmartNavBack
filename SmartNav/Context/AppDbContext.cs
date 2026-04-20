@@ -18,6 +18,8 @@ namespace SmartNav.Data
         public DbSet<Station> Stations { get; set; }
         public DbSet<Vehicle> Vehicles { get; set; }
         public DbSet<FilteredPreference> FilteredPreferences { get; set; }
+        public DbSet<Preset> Presets { get; set; }
+        public DbSet<PresetIcon> PresetIcons { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -84,6 +86,33 @@ namespace SmartNav.Data
                 .WithMany(u => u.FilteredPreferences)
                 .HasForeignKey(x => x.UserID)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<Preset>(entity =>
+            {
+                entity.Property(x => x.Street).HasMaxLength(120);
+                entity.Property(x => x.Number).HasMaxLength(20);
+                entity.Property(x => x.CityArea).HasMaxLength(80);
+                entity.Property(x => x.PostalCode).HasMaxLength(20);
+                entity.HasIndex(x => new { x.UserID, x.Position });
+            });
+
+            modelBuilder.Entity<PresetIcon>(entity =>
+            {
+                entity.Property(x => x.IconData).HasMaxLength(120);
+                entity.Property(x => x.TranslationField).HasMaxLength(120);
+            });
+
+            modelBuilder.Entity<Preset>()
+                .HasOne(x => x.User)
+                .WithMany(u => u.Presets)
+                .HasForeignKey(x => x.UserID)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<Preset>()
+                .HasOne(x => x.PresetIcon)
+                .WithMany(i => i.Presets)
+                .HasForeignKey(x => x.PresetIconId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<Vehicle>().HasData(
                 new Vehicle { Id = 1, Code = "small", Label = "Small car", TranslationField = "FILTER_VEHICLE_SIZE_SMALL" },
