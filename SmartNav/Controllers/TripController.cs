@@ -170,6 +170,47 @@ namespace SmartNav.Controllers
             return Ok(new { message = "Updated successfully", data = trip });
         }
 
+        [HttpPost("Rate")]
+        public async Task<ActionResult> RateTrip([FromBody] TripRateRequest request)
+        {
+            if (request.UserId <= 0)
+            {
+                return BadRequest(new { message = "UserId is required." });
+            }
+
+            if (request.Score < 1 || request.Score > 5)
+            {
+                return BadRequest(new { message = "Score must be between 1 and 5." });
+            }
+
+            Trip? trip = null;
+
+            if (request.TripId.HasValue && request.TripId.Value > 0)
+            {
+                trip = await _context.Trips
+                    .FirstOrDefaultAsync(t => t.Id == request.TripId.Value && t.UserID == request.UserId);
+            }
+
+            if (trip == null)
+            {
+                trip = await _context.Trips
+                    .Where(t => t.UserID == request.UserId)
+                    .OrderByDescending(t => t.TripDate)
+                    .ThenByDescending(t => t.Id)
+                    .FirstOrDefaultAsync();
+            }
+
+            if (trip == null)
+            {
+                return NotFound(new { message = "Trip not found." });
+            }
+
+            trip.Score = request.Score;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Trip rating saved successfully.", data = trip });
+        }
+
         [HttpPost("Delete")]
         public async Task<ActionResult> DeleteTrip([FromBody] TripDeleteRequest request)
         {
