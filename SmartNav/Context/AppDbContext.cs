@@ -20,6 +20,7 @@ namespace SmartNav.Data
         public DbSet<FilteredPreference> FilteredPreferences { get; set; }
         public DbSet<Preset> Presets { get; set; }
         public DbSet<PresetIcon> PresetIcons { get; set; }
+        public DbSet<AdminActionLog> AdminActionLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -113,6 +114,15 @@ namespace SmartNav.Data
                 .WithMany(i => i.Presets)
                 .HasForeignKey(x => x.PresetIconId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AdminActionLog>(entity =>
+            {
+                entity.Property(x => x.ActionType).IsRequired().HasMaxLength(80);
+                entity.Property(x => x.Details).HasMaxLength(800);
+                entity.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
+                entity.HasIndex(x => new { x.AdminUserId, x.CreatedAt });
+                entity.HasIndex(x => x.TargetUserId);
+            });
 
             modelBuilder.Entity<Vehicle>().HasData(
                 new Vehicle { Id = 1, Code = "small", Label = "Small car", TranslationField = "FILTER_VEHICLE_SIZE_SMALL" },
