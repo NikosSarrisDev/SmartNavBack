@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using SmartNav.Data;
 using SmartNav.Interfaces;
 using SmartNav.Models;
@@ -39,6 +40,28 @@ namespace SmartNav.Controllers
         {
             try
             {
+                if (user == null)
+                {
+                    return BadRequest(new ApiResponse<object>
+                    {
+                        Status = "error",
+                        Message = "Invalid user payload",
+                        Data = null
+                    });
+                }
+
+                if (string.IsNullOrWhiteSpace(user.UserName) ||
+                    string.IsNullOrWhiteSpace(user.Email) ||
+                    string.IsNullOrWhiteSpace(user.Password))
+                {
+                    return BadRequest(new ApiResponse<object>
+                    {
+                        Status = "error",
+                        Message = "Username, email and password are required",
+                        Data = null
+                    });
+                }
+
                 bool userExists = await _context.Users
                 .AnyAsync(u => u.UserName == user.UserName);
 
@@ -52,8 +75,69 @@ namespace SmartNav.Controllers
                     });
                 }
 
+                bool emailExists = await _context.Users
+                    .AnyAsync(u => u.Email != null && u.Email.ToLower() == user.Email.Trim().ToLower());
+
+                if (emailExists)
+                {
+                    return Ok(new ApiResponse<object>
+                    {
+                        Status = "error",
+                        Message = "Email already exists",
+                        Data = null
+                    });
+                }
+
+                if (user.RoleId <= 0 || !await _context.Roles.AnyAsync(r => r.RoleID == user.RoleId))
+                {
+                    return Ok(new ApiResponse<object>
+                    {
+                        Status = "error",
+                        Message = "Invalid role selection",
+                        Data = null
+                    });
+                }
+
+                if (user.AvatarId <= 0)
+                {
+                    user.AvatarId = await _context.Avatars
+                        .OrderBy(a => a.Id)
+                        .Select(a => a.Id)
+                        .FirstOrDefaultAsync();
+                }
+
+                if (user.AvatarId <= 0 || !await _context.Avatars.AnyAsync(a => a.Id == user.AvatarId))
+                {
+                    return Ok(new ApiResponse<object>
+                    {
+                        Status = "error",
+                        Message = "Invalid avatar selection",
+                        Data = null
+                    });
+                }
+
+                if (user.PreferenceId <= 0)
+                {
+                    user.PreferenceId = await _context.Preferences
+                        .OrderBy(p => p.Id)
+                        .Select(p => p.Id)
+                        .FirstOrDefaultAsync();
+                }
+
+                if (user.PreferenceId <= 0 || !await _context.Preferences.AnyAsync(p => p.Id == user.PreferenceId))
+                {
+                    return Ok(new ApiResponse<object>
+                    {
+                        Status = "error",
+                        Message = "No valid default preference was found",
+                        Data = null
+                    });
+                }
+
                 user.VerificationToken = Guid.NewGuid().ToString();
-                user.Password = _passwordService.HashPassword(user.Password);
+                user.UserName = user.UserName.Trim();
+                user.Email = user.Email.Trim();
+                user.Password = _passwordService.HashPassword(user.Password.Trim());
                 _context.Users.Add(user);
                 await _context.SaveChangesAsync();
 
@@ -74,6 +158,38 @@ namespace SmartNav.Controllers
                     Status = "success",
                     Message = "User created successfully",
                     Data = resultData
+                });
+            }
+            catch (DbUpdateException dbEx)
+            {
+                var sqlEx = dbEx.InnerException as SqlException;
+                var innerMessage = dbEx.InnerException?.Message ?? dbEx.Message;
+
+                if (sqlEx?.Number == 547 || innerMessage.Contains("FOREIGN KEY", StringComparison.OrdinalIgnoreCase))
+                {
+                    return StatusCode(500, new ApiResponse<string>
+                    {
+                        Status = "error",
+                        Message = "Database constraint error while creating user. Check role/avatar/preference values.",
+                        Data = innerMessage
+                    });
+                }
+
+                if (sqlEx?.Number == 2601 || sqlEx?.Number == 2627 || innerMessage.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase))
+                {
+                    return StatusCode(500, new ApiResponse<string>
+                    {
+                        Status = "error",
+                        Message = "Duplicate value detected while creating user (username/email).",
+                        Data = innerMessage
+                    });
+                }
+
+                return StatusCode(500, new ApiResponse<string>
+                {
+                    Status = "error",
+                    Message = "Database update failed while creating user.",
+                    Data = innerMessage
                 });
             }
             catch (Exception ex)
