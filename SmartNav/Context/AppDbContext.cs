@@ -31,8 +31,7 @@ namespace SmartNav.Data
                 .IsUnique();
 
             modelBuilder.Entity<User>()
-                .HasIndex(u => u.Email)
-                .IsUnique();
+                .HasIndex(u => u.Email);
 
             modelBuilder.Entity<User>(entity =>
             {

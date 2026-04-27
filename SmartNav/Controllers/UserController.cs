@@ -75,19 +75,6 @@ namespace SmartNav.Controllers
                     });
                 }
 
-                bool emailExists = await _context.Users
-                    .AnyAsync(u => u.Email != null && u.Email.ToLower() == user.Email.Trim().ToLower());
-
-                if (emailExists)
-                {
-                    return Ok(new ApiResponse<object>
-                    {
-                        Status = "error",
-                        Message = "Email already exists",
-                        Data = null
-                    });
-                }
-
                 if (user.RoleId <= 0 || !await _context.Roles.AnyAsync(r => r.RoleID == user.RoleId))
                 {
                     return Ok(new ApiResponse<object>
