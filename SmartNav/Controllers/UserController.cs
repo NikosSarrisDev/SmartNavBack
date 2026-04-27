@@ -195,7 +195,14 @@ namespace SmartNav.Controllers
         {
             try
             {
-                var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+                if (request == null || string.IsNullOrWhiteSpace(request.UserName) || string.IsNullOrWhiteSpace(request.Password))
+                {
+                    return BadRequest(new ApiResponse<object> { Status = "User error", Message = "Username and password are required", Data = null });
+                }
+
+                var normalizedUserName = request.UserName.Trim().ToLower();
+                var user = await _context.Users.FirstOrDefaultAsync(u =>
+                    u.UserName != null && u.UserName.ToLower() == normalizedUserName);
 
                 if (user == null || !_passwordService.VerifyPassword(request.Password, user.Password))
                 {
@@ -630,7 +637,7 @@ namespace SmartNav.Controllers
 
     public class LoginRequest
     {
-        public string Email { get; set; } = string.Empty;
+        public string UserName { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
     }
 
