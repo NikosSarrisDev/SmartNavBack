@@ -31,4 +31,8 @@ namespace SmartNav.Models
     {
         public int Take { get; set; } = 100;
     }
+
+    public class AdminAnalyticsRequest : AdminBaseRequest
+    {
+    }
 }

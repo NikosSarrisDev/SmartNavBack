@@ -116,6 +116,11 @@ namespace SmartNav.Controllers
                 return NotFound(new { message = "User not found." });
             }
 
+            if (request.TargetUserId == request.AdminUserId)
+            {
+                return BadRequest(new { message = "Admin cannot change their own role." });
+            }
+
             var role = await _context.Roles.FirstOrDefaultAsync(r => r.RoleID == request.NewRoleId);
             if (role == null)
             {
@@ -248,6 +253,82 @@ namespace SmartNav.Controllers
             {
                 return Ok(new { message = "Audit log table is not available yet.", data = new List<object>() });
             }
+        }
+
+        [HttpPost("Analytics")]
+        public async Task<ActionResult> Analytics([FromBody] AdminAnalyticsRequest request)
+        {
+            var adminValidation = await EnsureAdminAsync(request.AdminUserId);
+            if (adminValidation != null)
+            {
+                return adminValidation;
+            }
+
+            var vehicleUsage = await (
+                from trip in _context.Trips
+                join vehicle in _context.Vehicles on trip.VehicleID equals vehicle.Id into vehicleJoin
+                from vehicle in vehicleJoin.DefaultIfEmpty()
+                group trip by new
+                {
+                    VehicleId = trip.VehicleID,
+                    VehicleLabel = vehicle != null ? vehicle.Label : null,
+                    VehicleCode = vehicle != null ? vehicle.Code : null
+                }
+                into grp
+                orderby grp.Count() descending
+                select new
+                {
+                    vehicleId = grp.Key.VehicleId,
+                    vehicleLabel = grp.Key.VehicleId == null
+                        ? "Any vehicle (not selected)"
+                        : (grp.Key.VehicleLabel ?? grp.Key.VehicleCode ?? $"Vehicle {grp.Key.VehicleId}"),
+                    tripCount = grp.Count()
+                })
+                .ToListAsync();
+
+            var stationRows = await _context.Stations
+                .Select(s => new
+                {
+                    s.TripID,
+                    s.Street,
+                    s.Number,
+                    s.CityArea,
+                    s.PostalCode
+                })
+                .ToListAsync();
+
+            var stationCountPerTrip = stationRows
+                .GroupBy(s => s.TripID)
+                .Select(group => new
+                {
+                    tripId = group.Key,
+                    stationCount = group.Count(st =>
+                        !string.IsNullOrWhiteSpace(st.Street) ||
+                        !string.IsNullOrWhiteSpace(st.Number) ||
+                        !string.IsNullOrWhiteSpace(st.CityArea) ||
+                        !string.IsNullOrWhiteSpace(st.PostalCode))
+                })
+                .ToList();
+
+            var stationBuckets = stationCountPerTrip
+                .GroupBy(x => x.stationCount)
+                .OrderBy(x => x.Key)
+                .Select(x => new
+                {
+                    stationCount = x.Key,
+                    tripCount = x.Count()
+                })
+                .ToList();
+
+            return Ok(new
+            {
+                message = "success",
+                data = new
+                {
+                    vehicleUsage,
+                    stationBuckets
+                }
+            });
         }
 
         private async Task<ActionResult?> EnsureAdminAsync(int adminUserId)
