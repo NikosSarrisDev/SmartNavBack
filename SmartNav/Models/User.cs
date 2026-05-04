@@ -36,5 +36,7 @@ namespace SmartNav.Models
 
         public virtual ICollection<Preset>? Presets { get; set; }
 
+        public virtual UserSettings? UserSettings { get; set; }
+
     }
 }

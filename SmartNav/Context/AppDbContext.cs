@@ -21,6 +21,7 @@ namespace SmartNav.Data
         public DbSet<Preset> Presets { get; set; }
         public DbSet<PresetIcon> PresetIcons { get; set; }
         public DbSet<AdminActionLog> AdminActionLogs { get; set; }
+        public DbSet<UserSettings> UserSettings { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -122,6 +123,23 @@ namespace SmartNav.Data
                 entity.HasIndex(x => new { x.AdminUserId, x.CreatedAt });
                 entity.HasIndex(x => x.TargetUserId);
             });
+
+            modelBuilder.Entity<UserSettings>(entity =>
+            {
+                entity.HasIndex(x => x.UserID).IsUnique();
+                entity.Property(x => x.Theme).HasMaxLength(20);
+                entity.Property(x => x.MapStyle).HasMaxLength(20);
+                entity.Property(x => x.DistanceUnit).HasMaxLength(10);
+                entity.Property(x => x.TimeFormat).HasMaxLength(10);
+                entity.Property(x => x.ChipDensity).HasMaxLength(20);
+                entity.Property(x => x.UpdatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
+            });
+
+            modelBuilder.Entity<UserSettings>()
+                .HasOne(x => x.User)
+                .WithOne(u => u.UserSettings)
+                .HasForeignKey<UserSettings>(x => x.UserID)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<Vehicle>().HasData(
                 new Vehicle { Id = 1, Code = "small", Label = "Small car", TranslationField = "FILTER_VEHICLE_SIZE_SMALL" },
