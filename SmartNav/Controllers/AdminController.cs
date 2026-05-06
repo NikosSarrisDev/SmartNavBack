@@ -486,6 +486,171 @@ namespace SmartNav.Controllers
             });
         }
 
+        [HttpPost("AnalyticsByUser")]
+        public async Task<ActionResult> AnalyticsByUser([FromBody] AdminAnalyticsByUserRequest request)
+        {
+            var adminValidation = await EnsureAdminAsync(request.AdminUserId);
+            if (adminValidation != null)
+            {
+                return adminValidation;
+            }
+
+            var users = await _context.Users
+                .AsNoTracking()
+                .OrderBy(u => u.Id)
+                .Select(u => new
+                {
+                    userId = u.Id,
+                    userName = u.UserName ?? $"User {u.Id}"
+                })
+                .ToListAsync();
+
+            if (users.Count == 0)
+            {
+                return Ok(new
+                {
+                    message = "success",
+                    data = new
+                    {
+                        users = new List<object>(),
+                        currentUserId = 0,
+                        analyticsByUser = new List<object>()
+                    }
+                });
+            }
+
+            var vehicles = await _context.Vehicles
+                .AsNoTracking()
+                .OrderBy(v => v.Id)
+                .Select(v => new
+                {
+                    vehicleId = v.Id,
+                    vehicleLabel = v.Label ?? v.Code ?? $"Vehicle {v.Id}",
+                    vehicleTranslationField = v.TranslationField
+                })
+                .ToListAsync();
+
+            var allTrips = await _context.Trips
+                .AsNoTracking()
+                .Where(t => t.UserID.HasValue)
+                .Select(t => new
+                {
+                    userId = t.UserID!.Value,
+                    tripId = t.Id,
+                    departure = t.Departure ?? "-",
+                    destination = t.Destination ?? "-",
+                    tripDate = t.TripDate,
+                    vehicleId = t.VehicleID
+                })
+                .ToListAsync();
+
+            var tripIds = allTrips
+                .Where(t => t.tripId.HasValue)
+                .Select(t => t.tripId!.Value)
+                .Distinct()
+                .ToList();
+
+            var stationRows = await _context.Stations
+                .AsNoTracking()
+                .Where(s => tripIds.Contains(s.TripID))
+                .Select(s => new
+                {
+                    s.TripID,
+                    s.Street,
+                    s.Number,
+                    s.CityArea,
+                    s.PostalCode
+                })
+                .ToListAsync();
+
+            var stationCountMap = stationRows
+                .GroupBy(s => s.TripID)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Count(st =>
+                        !string.IsNullOrWhiteSpace(st.Street) ||
+                        !string.IsNullOrWhiteSpace(st.Number) ||
+                        !string.IsNullOrWhiteSpace(st.CityArea) ||
+                        !string.IsNullOrWhiteSpace(st.PostalCode)));
+
+            var analyticsByUser = users
+                .Select(u =>
+                {
+                    var userTrips = allTrips
+                        .Where(t => t.userId == u.userId)
+                        .OrderByDescending(t => t.tripDate)
+                        .ToList();
+
+                    var vehicleCountMap = userTrips
+                        .GroupBy(t => t.vehicleId ?? -1)
+                        .ToDictionary(g => g.Key, g => g.Count());
+
+                    var vehicleUsage = vehicles
+                        .Select(v => new
+                        {
+                            vehicleId = (int?)v.vehicleId,
+                            vehicleLabel = v.vehicleLabel,
+                            vehicleTranslationField = v.vehicleTranslationField,
+                            tripCount = vehicleCountMap.TryGetValue(v.vehicleId, out var count) ? count : 0
+                        })
+                        .ToList<object>();
+
+                    vehicleUsage.Add(new
+                    {
+                        vehicleId = (int?)null,
+                        vehicleLabel = "Any vehicle (not selected)",
+                        vehicleTranslationField = (string?)null,
+                        tripCount = vehicleCountMap.TryGetValue(-1, out var anyCount) ? anyCount : 0
+                    });
+
+                    var trips = userTrips
+                        .Select(t => new
+                        {
+                            tripId = t.tripId,
+                            departure = t.departure,
+                            destination = t.destination,
+                            tripDate = t.tripDate,
+                            stationCount = t.tripId.HasValue && stationCountMap.TryGetValue(t.tripId.Value, out var stationCount) ? stationCount : 0,
+                            displayLabel = $"({t.departure} - {t.destination})"
+                        })
+                        .ToList();
+
+                    return new
+                    {
+                        userId = u.userId,
+                        userName = u.userName,
+                        vehicleUsage,
+                        trips,
+                        selectedTripId = trips.FirstOrDefault()?.tripId ?? 0
+                    };
+                })
+                .ToList();
+
+            var usersWithTrips = analyticsByUser
+                .Where(x => x.trips.Count > 0)
+                .Select(x => x.userId)
+                .ToHashSet();
+
+            var currentUserId = request.TargetUserId > 0 && analyticsByUser.Any(x => x.userId == request.TargetUserId)
+                ? request.TargetUserId
+                : (
+                    usersWithTrips.Contains(request.AdminUserId)
+                        ? request.AdminUserId
+                        : (analyticsByUser.FirstOrDefault(x => usersWithTrips.Contains(x.userId))?.userId ?? analyticsByUser.First().userId)
+                );
+
+            return Ok(new
+            {
+                message = "success",
+                data = new
+                {
+                    users,
+                    currentUserId,
+                    analyticsByUser
+                }
+            });
+        }
+
         private async Task<ActionResult?> EnsureAdminAsync(int adminUserId)
         {
             if (adminUserId <= 0)

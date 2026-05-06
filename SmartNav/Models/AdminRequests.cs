@@ -47,4 +47,10 @@ namespace SmartNav.Models
     public class AdminAnalyticsRequest : AdminBaseRequest
     {
     }
+
+    public class AdminAnalyticsByUserRequest : AdminBaseRequest
+    {
+        public int TargetUserId { get; set; }
+        public int? TripId { get; set; }
+    }
 }
