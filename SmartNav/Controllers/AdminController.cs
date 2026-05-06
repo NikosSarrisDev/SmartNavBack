@@ -64,33 +64,34 @@ namespace SmartNav.Controllers
             }
 
             var normalizedSearch = request.Search?.Trim().ToLowerInvariant();
-            var query = _context.Users
-                .Include(u => u.Role)
-                .AsQueryable();
+            var query = from u in _context.Users
+                        join r in _context.Roles on u.RoleId equals r.RoleID into roleJoin
+                        from r in roleJoin.DefaultIfEmpty()
+                        select new
+                        {
+                            u.Id,
+                            u.UserName,
+                            u.Name,
+                            u.Surname,
+                            u.Email,
+                            u.Phone,
+                            u.IsVerified,
+                            u.RoleId,
+                            RoleName = r != null ? r.RoleName : null
+                        };
 
             if (!string.IsNullOrWhiteSpace(normalizedSearch))
             {
+                var likePattern = $"%{normalizedSearch}%";
                 query = query.Where(u =>
-                    (u.UserName != null && u.UserName.ToLower().Contains(normalizedSearch)) ||
-                    (u.Name != null && u.Name.ToLower().Contains(normalizedSearch)) ||
-                    (u.Surname != null && u.Surname.ToLower().Contains(normalizedSearch)) ||
-                    (u.Email != null && u.Email.ToLower().Contains(normalizedSearch)));
+                    (u.UserName != null && EF.Functions.Like(u.UserName.ToLower(), likePattern)) ||
+                    (u.Name != null && EF.Functions.Like(u.Name.ToLower(), likePattern)) ||
+                    (u.Surname != null && EF.Functions.Like(u.Surname.ToLower(), likePattern)) ||
+                    (u.Email != null && EF.Functions.Like(u.Email.ToLower(), likePattern)));
             }
 
             var users = await query
                 .OrderBy(u => u.Id)
-                .Select(u => new
-                {
-                    u.Id,
-                    u.UserName,
-                    u.Name,
-                    u.Surname,
-                    u.Email,
-                    u.Phone,
-                    u.IsVerified,
-                    u.RoleId,
-                    RoleName = u.Role != null ? u.Role.RoleName : null
-                })
                 .ToListAsync();
 
             return Ok(new { message = "success", data = users });
@@ -110,8 +111,8 @@ namespace SmartNav.Controllers
                 return BadRequest(new { message = "TargetUserId and NewRoleId are required." });
             }
 
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == request.TargetUserId);
-            if (user == null)
+            var userExists = await _context.Users.AnyAsync(u => u.Id == request.TargetUserId);
+            if (!userExists)
             {
                 return NotFound(new { message = "User not found." });
             }
@@ -127,8 +128,16 @@ namespace SmartNav.Controllers
                 return NotFound(new { message = "Role not found." });
             }
 
-            user.RoleId = request.NewRoleId;
-            await _context.SaveChangesAsync();
+            var updatedRows = await _context.Users
+                .Where(u => u.Id == request.TargetUserId)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(u => u.RoleId, request.NewRoleId));
+
+            if (updatedRows <= 0)
+            {
+                return StatusCode(500, new { message = "Failed to update user role." });
+            }
+
             await TryCreateAuditLogAsync(
                 request.AdminUserId,
                 request.TargetUserId,
@@ -140,8 +149,8 @@ namespace SmartNav.Controllers
                 message = "User role updated successfully.",
                 data = new
                 {
-                    user.Id,
-                    user.RoleId,
+                    Id = request.TargetUserId,
+                    RoleId = request.NewRoleId,
                     RoleName = role.RoleName
                 }
             });
@@ -178,6 +187,119 @@ namespace SmartNav.Controllers
             return Ok(new { message = "User verification updated successfully." });
         }
 
+        [HttpPost("ApplyUserChanges")]
+        public async Task<ActionResult> ApplyUserChanges([FromBody] AdminBulkUserChangesRequest request)
+        {
+            var adminValidation = await EnsureAdminAsync(request.AdminUserId);
+            if (adminValidation != null)
+            {
+                return adminValidation;
+            }
+
+            if (request.Changes == null || request.Changes.Count == 0)
+            {
+                return BadRequest(new { message = "No user changes were provided." });
+            }
+
+            var changeItems = request.Changes
+                .Where(x => x.TargetUserId > 0)
+                .GroupBy(x => x.TargetUserId)
+                .Select(g => g.Last())
+                .ToList();
+
+            if (changeItems.Count == 0)
+            {
+                return BadRequest(new { message = "No valid user changes were provided." });
+            }
+
+            var targetIds = changeItems.Select(x => x.TargetUserId).Distinct().ToList();
+            var users = await _context.Users.Where(u => targetIds.Contains(u.Id)).ToListAsync();
+
+            if (users.Count != targetIds.Count)
+            {
+                return NotFound(new { message = "One or more users were not found." });
+            }
+
+            var requiredRoleIds = changeItems
+                .Where(x => x.NewRoleId.HasValue)
+                .Select(x => x.NewRoleId!.Value)
+                .Distinct()
+                .ToList();
+
+            var validRoleIds = requiredRoleIds.Count == 0
+                ? new HashSet<int>()
+                : (await _context.Roles
+                    .Where(r => requiredRoleIds.Contains(r.RoleID))
+                    .Select(r => r.RoleID)
+                    .ToListAsync()).ToHashSet();
+
+            if (requiredRoleIds.Any(roleId => !validRoleIds.Contains(roleId)))
+            {
+                return NotFound(new { message = "One or more selected roles were not found." });
+            }
+
+            var userMap = users.ToDictionary(u => u.Id, u => u);
+            var updatedCount = 0;
+
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                foreach (var change in changeItems)
+                {
+                    var user = userMap[change.TargetUserId];
+                    var changedSomething = false;
+
+                    if (change.NewRoleId.HasValue)
+                    {
+                        if (change.TargetUserId == request.AdminUserId)
+                        {
+                            return BadRequest(new { message = "Admin cannot change their own role." });
+                        }
+
+                        if (user.RoleId != change.NewRoleId.Value)
+                        {
+                            user.RoleId = change.NewRoleId.Value;
+                            changedSomething = true;
+                        }
+                    }
+
+                    if (change.IsVerified.HasValue && user.IsVerified != change.IsVerified.Value)
+                    {
+                        user.IsVerified = change.IsVerified.Value;
+                        changedSomething = true;
+                    }
+
+                    if (changedSomething)
+                    {
+                        updatedCount++;
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(500, new { message = "Failed to apply user changes." });
+            }
+
+            await TryCreateAuditLogAsync(
+                request.AdminUserId,
+                null,
+                "APPLY_USER_CHANGES",
+                $"Applied bulk changes to {updatedCount} users.");
+
+            return Ok(new
+            {
+                message = "User changes applied successfully.",
+                data = new
+                {
+                    updatedCount
+                }
+            });
+        }
+
         [HttpPost("DeleteUser")]
         public async Task<ActionResult> DeleteUser([FromBody] AdminDeleteUserRequest request)
         {
@@ -197,14 +319,47 @@ namespace SmartNav.Controllers
                 return BadRequest(new { message = "You cannot delete your own account." });
             }
 
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == request.TargetUserId);
+            var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == request.TargetUserId);
             if (user == null)
             {
                 return NotFound(new { message = "User not found." });
             }
 
-            _context.Users.Remove(user);
-            await _context.SaveChangesAsync();
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var userTripIds = await _context.Trips
+                    .Where(t => t.UserID == request.TargetUserId)
+                    .Select(t => t.Id)
+                    .ToListAsync();
+
+                if (userTripIds.Count > 0)
+                {
+                    await _context.Stations
+                        .Where(s => userTripIds.Contains(s.TripID))
+                        .ExecuteDeleteAsync();
+                }
+
+                await _context.Trips.Where(t => t.UserID == request.TargetUserId).ExecuteDeleteAsync();
+                await _context.FilteredPreferences.Where(f => f.UserID == request.TargetUserId).ExecuteDeleteAsync();
+                await _context.Presets.Where(p => p.UserID == request.TargetUserId).ExecuteDeleteAsync();
+                await _context.UserSettings.Where(s => s.UserID == request.TargetUserId).ExecuteDeleteAsync();
+
+                // Keep DBs with strict FKs to audit logs safe.
+                await _context.AdminActionLogs
+                    .Where(a => a.AdminUserId == request.TargetUserId || a.TargetUserId == request.TargetUserId)
+                    .ExecuteDeleteAsync();
+
+                await _context.Users.Where(u => u.Id == request.TargetUserId).ExecuteDeleteAsync();
+
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(500, new { message = "Failed to delete user and related data." });
+            }
+
             await TryCreateAuditLogAsync(
                 request.AdminUserId,
                 request.TargetUserId,

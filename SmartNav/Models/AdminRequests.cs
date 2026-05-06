@@ -32,6 +32,18 @@ namespace SmartNav.Models
         public int Take { get; set; } = 100;
     }
 
+    public class AdminBulkUserChangesRequest : AdminBaseRequest
+    {
+        public List<AdminBulkUserChangeItem> Changes { get; set; } = new();
+    }
+
+    public class AdminBulkUserChangeItem
+    {
+        public int TargetUserId { get; set; }
+        public int? NewRoleId { get; set; }
+        public bool? IsVerified { get; set; }
+    }
+
     public class AdminAnalyticsRequest : AdminBaseRequest
     {
     }
