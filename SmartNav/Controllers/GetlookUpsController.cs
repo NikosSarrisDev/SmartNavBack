@@ -55,6 +55,19 @@ namespace SmartNav.Controllers
             return Ok(new { data = preferences });
         }
 
+        [HttpPost("Mood")]
+        public async Task<ActionResult> GetMood()
+        {
+            var moods = await _context.Moods.ToListAsync();
+
+            if (moods == null || !moods.Any())
+            {
+                return NotFound("Δεν βρέθηκαν Moods.");
+            }
+
+            return Ok(new { data = moods });
+        }
+
         [HttpPost("Vehicle")]
         public async Task<ActionResult> GetVehicle()
         {

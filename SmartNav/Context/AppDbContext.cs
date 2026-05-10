@@ -15,6 +15,7 @@ namespace SmartNav.Data
         public DbSet<Role> Roles { get; set; }
         public DbSet<Trip> Trips { get; set; }
         public DbSet<Preference> Preferences { get; set; }
+        public DbSet<Mood> Moods { get; set; }
         public DbSet<Station> Stations { get; set; }
         public DbSet<Vehicle> Vehicles { get; set; }
         public DbSet<FilteredPreference> FilteredPreferences { get; set; }
