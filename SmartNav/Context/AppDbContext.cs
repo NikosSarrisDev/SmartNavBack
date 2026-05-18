@@ -76,6 +76,7 @@ namespace SmartNav.Data
             {
                 entity.Property(x => x.SelectedPreferenceCode).HasMaxLength(60);
                 entity.Property(x => x.SelectedPreferencePrompt).HasMaxLength(400);
+                entity.Property(x => x.MoodCode).HasMaxLength(60);
                 entity.Property(x => x.VehicleSize).HasMaxLength(32);
                 entity.Property(x => x.TrafficTimeMode).HasMaxLength(24);
                 entity.Property(x => x.StationsJson).HasColumnType("nvarchar(max)");

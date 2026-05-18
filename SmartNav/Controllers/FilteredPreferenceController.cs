@@ -168,6 +168,7 @@ namespace SmartNav.Controllers
             entity.UserID = request.UserID;
             entity.SelectedPreferenceCode = NormalizeText(request.SelectedPreferenceCode);
             entity.SelectedPreferencePrompt = NormalizeText(request.SelectedPreferencePrompt);
+            entity.MoodCode = NormalizeText(request.MoodCode);
             entity.VehicleSize = NormalizeText(request.VehicleSize);
             entity.AvoidTolls = request.AvoidTolls;
             entity.AvoidHighways = request.AvoidHighways;
@@ -250,6 +251,7 @@ namespace SmartNav.Controllers
                     item.Id,
                     item.AppliedAt,
                     item.SelectedPreferenceCode,
+                    item.MoodCode,
                     item.VehicleSize,
                     item.AvoidTolls,
                     item.AvoidHighways,
@@ -453,6 +455,7 @@ Return ONLY JSON in this format:
         private static string BuildPreferenceSignature(FilteredPreference item)
         {
             var selectedPreferenceCode = NormalizeText(item.SelectedPreferenceCode)?.ToUpperInvariant() ?? string.Empty;
+            var moodCode = NormalizeText(item.MoodCode)?.ToUpperInvariant() ?? string.Empty;
             var vehicleSize = NormalizeText(item.VehicleSize)?.ToUpperInvariant() ?? string.Empty;
             var trafficTimeMode = NormalizeText(item.TrafficTimeMode)?.ToUpperInvariant() ?? string.Empty;
             var startHour = item.TrafficStartDateTime.HasValue
@@ -466,6 +469,7 @@ Return ONLY JSON in this format:
             return string.Join("|", new[]
             {
                 selectedPreferenceCode,
+                moodCode,
                 vehicleSize,
                 item.AvoidTolls ? "1" : "0",
                 item.AvoidHighways ? "1" : "0",
@@ -504,6 +508,7 @@ Return ONLY JSON in this format:
                 UserID = entity.UserID,
                 SelectedPreferenceCode = NormalizeText(entity.SelectedPreferenceCode),
                 SelectedPreferencePrompt = NormalizeText(entity.SelectedPreferencePrompt),
+                MoodCode = NormalizeText(entity.MoodCode),
                 VehicleSize = NormalizeText(entity.VehicleSize),
                 AvoidTolls = entity.AvoidTolls,
                 AvoidHighways = entity.AvoidHighways,
@@ -568,6 +573,7 @@ Return ONLY JSON in this format:
 
             return
                 hasNonDefaultPreference ||
+                !string.IsNullOrWhiteSpace(entity.MoodCode) ||
                 !string.IsNullOrWhiteSpace(entity.VehicleSize) ||
                 entity.AvoidTolls ||
                 entity.AvoidHighways ||

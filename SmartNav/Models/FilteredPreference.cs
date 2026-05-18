@@ -15,6 +15,8 @@ namespace SmartNav.Models
 
         public string? SelectedPreferencePrompt { get; set; }
 
+        public string? MoodCode { get; set; }
+
         public string? VehicleSize { get; set; }
 
         public bool AvoidTolls { get; set; }

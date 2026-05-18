@@ -237,7 +237,6 @@ namespace SmartNav.Controllers
                 aiAggressiveness = 3,
                 alwaysShowRouteExplanation = true,
                 alternativeRoutesCount = 2,
-                useHistoryPersonalization = true,
                 theme = "system",
                 mapStyle = "standard",
                 distanceUnit = "km",
@@ -245,11 +244,6 @@ namespace SmartNav.Controllers
                 chipDensity = "comfortable",
                 largeText = false,
                 highContrast = false,
-                storeTrips = true,
-                storeRatings = true,
-                storeStations = true,
-                consentLocationHistory = false,
-                consentAiTraining = false,
                 updatedAt = DateTime.UtcNow
             };
         }
@@ -262,7 +256,6 @@ namespace SmartNav.Controllers
                 aiAggressiveness = entity.AiAggressiveness,
                 alwaysShowRouteExplanation = entity.AlwaysShowRouteExplanation,
                 alternativeRoutesCount = entity.AlternativeRoutesCount,
-                useHistoryPersonalization = entity.UseHistoryPersonalization,
                 theme = entity.Theme,
                 mapStyle = entity.MapStyle,
                 distanceUnit = entity.DistanceUnit,
@@ -270,11 +263,6 @@ namespace SmartNav.Controllers
                 chipDensity = entity.ChipDensity,
                 largeText = entity.LargeText,
                 highContrast = entity.HighContrast,
-                storeTrips = entity.StoreTrips,
-                storeRatings = entity.StoreRatings,
-                storeStations = entity.StoreStations,
-                consentLocationHistory = entity.ConsentLocationHistory,
-                consentAiTraining = entity.ConsentAiTraining,
                 updatedAt = entity.UpdatedAt
             };
         }
@@ -284,7 +272,6 @@ namespace SmartNav.Controllers
             entity.AiAggressiveness = Math.Clamp(request.AiAggressiveness, 1, 5);
             entity.AlwaysShowRouteExplanation = request.AlwaysShowRouteExplanation;
             entity.AlternativeRoutesCount = Math.Clamp(request.AlternativeRoutesCount, 1, 3);
-            entity.UseHistoryPersonalization = request.UseHistoryPersonalization;
             entity.Theme = NormalizeByWhitelist(request.Theme, new[] { "light", "dark", "system" }, "system");
             entity.MapStyle = NormalizeByWhitelist(request.MapStyle, new[] { "standard", "satellite", "terrain" }, "standard");
             entity.DistanceUnit = NormalizeByWhitelist(request.DistanceUnit, new[] { "km", "mi" }, "km");
@@ -292,11 +279,6 @@ namespace SmartNav.Controllers
             entity.ChipDensity = NormalizeByWhitelist(request.ChipDensity, new[] { "compact", "comfortable" }, "comfortable");
             entity.LargeText = request.LargeText;
             entity.HighContrast = request.HighContrast;
-            entity.StoreTrips = request.StoreTrips;
-            entity.StoreRatings = request.StoreRatings;
-            entity.StoreStations = request.StoreStations;
-            entity.ConsentLocationHistory = request.ConsentLocationHistory;
-            entity.ConsentAiTraining = request.ConsentAiTraining;
         }
 
         private static string NormalizeByWhitelist(string? value, IEnumerable<string> whitelist, string fallback)

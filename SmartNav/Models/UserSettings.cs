@@ -17,8 +17,6 @@ namespace SmartNav.Models
 
         public int AlternativeRoutesCount { get; set; } = 2;
 
-        public bool UseHistoryPersonalization { get; set; } = true;
-
         public string Theme { get; set; } = "system";
 
         public string MapStyle { get; set; } = "standard";
@@ -33,16 +31,6 @@ namespace SmartNav.Models
 
         public bool HighContrast { get; set; } = false;
 
-        public bool StoreTrips { get; set; } = true;
-
-        public bool StoreRatings { get; set; } = true;
-
-        public bool StoreStations { get; set; } = true;
-
-        public bool ConsentLocationHistory { get; set; } = false;
-
-        public bool ConsentAiTraining { get; set; } = false;
-
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
         [ForeignKey("UserID")]
@@ -55,7 +43,6 @@ namespace SmartNav.Models
         public int AiAggressiveness { get; set; }
         public bool AlwaysShowRouteExplanation { get; set; }
         public int AlternativeRoutesCount { get; set; }
-        public bool UseHistoryPersonalization { get; set; }
         public string? Theme { get; set; }
         public string? MapStyle { get; set; }
         public string? DistanceUnit { get; set; }
@@ -63,10 +50,5 @@ namespace SmartNav.Models
         public string? ChipDensity { get; set; }
         public bool LargeText { get; set; }
         public bool HighContrast { get; set; }
-        public bool StoreTrips { get; set; }
-        public bool StoreRatings { get; set; }
-        public bool StoreStations { get; set; }
-        public bool ConsentLocationHistory { get; set; }
-        public bool ConsentAiTraining { get; set; }
     }
 }

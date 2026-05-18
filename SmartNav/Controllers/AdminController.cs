@@ -540,7 +540,8 @@ namespace SmartNav.Controllers
                     departure = t.Departure ?? "-",
                     destination = t.Destination ?? "-",
                     tripDate = t.TripDate,
-                    vehicleId = t.VehicleID
+                    vehicleId = t.VehicleID,
+                    distanceKm = t.DistanceKM
                 })
                 .ToListAsync();
 
@@ -584,6 +585,9 @@ namespace SmartNav.Controllers
                     var vehicleCountMap = userTrips
                         .GroupBy(t => t.vehicleId ?? -1)
                         .ToDictionary(g => g.Key, g => g.Count());
+                    var vehicleDistanceMap = userTrips
+                        .GroupBy(t => t.vehicleId ?? -1)
+                        .ToDictionary(g => g.Key, g => g.Sum(x => x.distanceKm ?? 0m));
 
                     var vehicleUsage = vehicles
                         .Select(v => new
@@ -603,6 +607,24 @@ namespace SmartNav.Controllers
                         tripCount = vehicleCountMap.TryGetValue(-1, out var anyCount) ? anyCount : 0
                     });
 
+                    var distanceByVehicle = vehicles
+                        .Select(v => new
+                        {
+                            vehicleId = (int?)v.vehicleId,
+                            vehicleLabel = v.vehicleLabel,
+                            vehicleTranslationField = v.vehicleTranslationField,
+                            totalDistanceKm = vehicleDistanceMap.TryGetValue(v.vehicleId, out var distance) ? decimal.Round(distance, 2) : 0m
+                        })
+                        .ToList<object>();
+
+                    distanceByVehicle.Add(new
+                    {
+                        vehicleId = (int?)null,
+                        vehicleLabel = "Any vehicle (not selected)",
+                        vehicleTranslationField = (string?)null,
+                        totalDistanceKm = vehicleDistanceMap.TryGetValue(-1, out var anyDistance) ? decimal.Round(anyDistance, 2) : 0m
+                    });
+
                     var trips = userTrips
                         .Select(t => new
                         {
@@ -619,6 +641,7 @@ namespace SmartNav.Controllers
                     {
                         userId = u.userId,
                         userName = u.userName,
+                        distanceByVehicle,
                         vehicleUsage,
                         trips,
                         selectedTripId = trips.FirstOrDefault()?.tripId ?? 0
