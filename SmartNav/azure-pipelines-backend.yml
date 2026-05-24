@@ -1,59 +1,71 @@
 trigger:
   branches:
+    include: [ main, master, develop ]
+  paths:
     include:
-      - main
-      - master
-      - develop
+      - SmartNav/**
+      - SmartNav.sln
+      - azure-pipelines-backend.yml
 
 pr:
   branches:
+    include: [ main, master, develop ]
+  paths:
     include:
-      - main
-      - master
-      - develop
+      - SmartNav/**
+      - SmartNav.sln
+      - azure-pipelines-backend.yml
 
 pool:
   vmImage: ubuntu-latest
 
 variables:
   buildConfiguration: Release
-  dotnetVersion: 8.0.x
+  dotnetVersion: '8.0.x'
 
 steps:
-  - checkout: self
-    clean: true
+- checkout: self
+  clean: true
 
-  - task: UseDotNet@2
-    displayName: Use .NET SDK $(dotnetVersion)
-    inputs:
-      packageType: sdk
-      version: $(dotnetVersion)
+- task: UseDotNet@2
+  inputs:
+    packageType: sdk
+    version: $(dotnetVersion)
+  displayName: 'Use .NET SDK $(dotnetVersion)'
 
-  - task: DotNetCoreCLI@2
-    displayName: Restore
-    inputs:
-      command: restore
-      projects: SmartNav.csproj
+- task: DotNetCoreCLI@2
+  inputs:
+    command: restore
+    projects: SmartNav.sln
+  displayName: 'Restore'
 
-  - task: DotNetCoreCLI@2
-    displayName: Build
-    inputs:
-      command: build
-      projects: SmartNav.csproj
-      arguments: --configuration $(buildConfiguration) --no-restore
+- task: DotNetCoreCLI@2
+  inputs:
+    command: build
+    projects: SmartNav.sln
+    arguments: '--configuration $(buildConfiguration) --no-restore'
+  displayName: 'Build'
 
-  - task: DotNetCoreCLI@2
-    displayName: Publish API
-    inputs:
-      command: publish
-      publishWebProjects: false
-      projects: SmartNav.csproj
-      arguments: --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/backend --no-build
-      zipAfterPublish: true
+- task: DotNetCoreCLI@2
+  inputs:
+    command: test
+    projects: SmartNav.sln
+    arguments: '--configuration $(buildConfiguration) --no-build'
+    publishTestResults: true
+  displayName: 'Test'
 
-  - task: PublishBuildArtifacts@1
-    displayName: Publish backend artifact
-    inputs:
-      PathtoPublish: $(Build.ArtifactStagingDirectory)/backend
-      ArtifactName: backend
-      publishLocation: Container
+- task: DotNetCoreCLI@2
+  inputs:
+    command: publish
+    publishWebProjects: false
+    projects: SmartNav/SmartNav.csproj
+    arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/backend --no-build'
+    zipAfterPublish: true
+  displayName: 'Publish API'
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)/backend'
+    ArtifactName: backend
+    publishLocation: Container
+  displayName: 'Publish backend artifact'
