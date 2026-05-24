@@ -3,8 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using SmartNav.Data;
 using SmartNav.Models;
 using System.Globalization;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 
 namespace SmartNav.Controllers
@@ -14,16 +12,13 @@ namespace SmartNav.Controllers
     public class FilteredPreferenceController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
 
         public FilteredPreferenceController(
             AppDbContext context,
-            IHttpClientFactory httpClientFactory,
             IConfiguration configuration)
         {
             _context = context;
-            _httpClientFactory = httpClientFactory;
             _configuration = configuration;
         }
 
@@ -80,10 +75,11 @@ namespace SmartNav.Controllers
                 return BadRequest(new { message = "UserId is required." });
             }
 
+            var resolverSettings = GetResolverSettings();
             var history = await _context.FilteredPreferences
                 .Where(x => x.UserID == request.UserId)
                 .OrderByDescending(x => x.AppliedAt)
-                .Take(150)
+                .Take(resolverSettings.HistoryLimit)
                 .ToListAsync();
 
             if (!history.Any())
@@ -91,7 +87,7 @@ namespace SmartNav.Controllers
                 return Ok(new { message = "No filtered preference found for this user.", data = (FilteredPreferenceResolvedResponse?)null });
             }
 
-            var entity = await ResolveBestPreferenceAsync(history, HttpContext.RequestAborted);
+            var entity = ResolveBestPreference(history, resolverSettings);
             var resolved = MapEntityToResolvedResponse(entity);
             return Ok(new { message = "success", data = resolved });
         }
@@ -211,245 +207,194 @@ namespace SmartNav.Controllers
             return JsonSerializer.Serialize(normalizedStations);
         }
 
-        private async Task<FilteredPreference> ResolveBestPreferenceAsync(
+        private FilteredPreference ResolveBestPreference(
             IReadOnlyList<FilteredPreference> history,
-            CancellationToken cancellationToken)
+            PreferenceResolverSettings settings)
         {
             if (history.Count == 1)
             {
                 return history[0];
             }
 
-            var aiSelectedId = await TryResolveBestPreferenceIdWithAiAsync(history, cancellationToken);
-            if (aiSelectedId.HasValue)
-            {
-                var aiSelected = history.FirstOrDefault(x => x.Id == aiSelectedId.Value);
-                if (aiSelected != null)
-                {
-                    return aiSelected;
-                }
-            }
-
-            return ResolveBestPreferenceFallback(history);
-        }
-
-        private async Task<int?> TryResolveBestPreferenceIdWithAiAsync(
-            IReadOnlyList<FilteredPreference> history,
-            CancellationToken cancellationToken)
-        {
-            var apiKey = _configuration["GeminiSettings:ApiKey"];
-            if (string.IsNullOrWhiteSpace(apiKey))
-            {
-                return null;
-            }
-
-            var model = _configuration["GeminiSettings:Model"] ?? "gemini-2.0-flash";
-            var requestItems = history
-                .Take(60)
-                .Select(item => new
-                {
-                    item.Id,
-                    item.AppliedAt,
-                    item.SelectedPreferenceCode,
-                    item.MoodCode,
-                    item.VehicleSize,
-                    item.AvoidTolls,
-                    item.AvoidHighways,
-                    item.AvoidFerries,
-                    item.TrafficTimeMode,
-                    item.IncludeEvChargingStations,
-                    Stations = DeserializeStations(item.StationsJson)
-                        .Select(station => new
-                        {
-                            station.Street,
-                            station.Number,
-                            station.CityArea,
-                            station.PostalCode
-                        })
-                        .ToList()
-                })
-                .ToList();
-
-            var prompt = $@"You receive a user's history of applied navigation filter sets.
-Select exactly ONE record id that best represents the user's likely preferred default filters.
-Prioritize repeated patterns and recent behavior.
-
-History JSON:
-{JsonSerializer.Serialize(requestItems)}
-
-Return ONLY JSON in this format:
-{{""selectedId"":123,""confidence"":0.0,""reason"":""short text""}}";
-
-            var body = new
-            {
-                contents = new[]
-                {
-                    new
-                    {
-                        parts = new[]
-                        {
-                            new
-                            {
-                                text = prompt
-                            }
-                        }
-                    }
-                },
-                generationConfig = new
-                {
-                    temperature = 0,
-                    topP = 0,
-                    topK = 1,
-                    maxOutputTokens = 140,
-                    responseMimeType = "application/json"
-                }
-            };
-
-            var payload = JsonSerializer.Serialize(body);
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
-
-            try
-            {
-                using var request = new HttpRequestMessage(HttpMethod.Post, url)
-                {
-                    Content = new StringContent(payload, Encoding.UTF8, "application/json")
-                };
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-                var client = _httpClientFactory.CreateClient();
-                using var response = await client.SendAsync(request, cancellationToken);
-                if (!response.IsSuccessStatusCode)
-                {
-                    return null;
-                }
-
-                var raw = await response.Content.ReadAsStringAsync(cancellationToken);
-                var parsedId = ParseGeminiSelectionId(raw);
-                if (!parsedId.HasValue)
-                {
-                    return null;
-                }
-
-                return history.Any(item => item.Id == parsedId.Value) ? parsedId.Value : null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static int? ParseGeminiSelectionId(string rawResponse)
-        {
-            using var rootDoc = JsonDocument.Parse(rawResponse);
-            if (!rootDoc.RootElement.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
-            {
-                return null;
-            }
-
-            var first = candidates[0];
-            if (!first.TryGetProperty("content", out var content) || !content.TryGetProperty("parts", out var parts) || parts.GetArrayLength() == 0)
-            {
-                return null;
-            }
-
-            var text = parts[0].GetProperty("text").GetString() ?? string.Empty;
-            text = text.Replace("```json", string.Empty, StringComparison.OrdinalIgnoreCase)
-                       .Replace("```", string.Empty, StringComparison.OrdinalIgnoreCase)
-                       .Trim();
-
-            var json = ExtractFirstJson(text);
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                return null;
-            }
-
-            using var parsed = JsonDocument.Parse(json);
-            if (!parsed.RootElement.TryGetProperty("selectedId", out var selectedIdElement))
-            {
-                return null;
-            }
-
-            return selectedIdElement.TryGetInt32(out var selectedId) ? selectedId : null;
-        }
-
-        private static string? ExtractFirstJson(string text)
-        {
-            var start = text.IndexOf('{');
-            if (start < 0) return null;
-
-            var depth = 0;
-            var inString = false;
-            var escaped = false;
-
-            for (var i = start; i < text.Length; i++)
-            {
-                var c = text[i];
-                if (inString)
-                {
-                    if (escaped)
-                    {
-                        escaped = false;
-                        continue;
-                    }
-
-                    if (c == '\\')
-                    {
-                        escaped = true;
-                        continue;
-                    }
-
-                    if (c == '"')
-                    {
-                        inString = false;
-                    }
-
-                    continue;
-                }
-
-                if (c == '"')
-                {
-                    inString = true;
-                    continue;
-                }
-
-                if (c == '{') depth++;
-                if (c == '}')
-                {
-                    depth--;
-                    if (depth == 0)
-                    {
-                        return text[start..(i + 1)];
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        private static FilteredPreference ResolveBestPreferenceFallback(IReadOnlyList<FilteredPreference> history)
-        {
             var now = DateTime.UtcNow;
-            var bestGroup = history
+            var groupedBySignature = history
                 .GroupBy(BuildPreferenceSignature)
-                .Select(group => new
-                {
-                    Items = group.ToList(),
-                    Score = group.Sum(item => CalculateRecencyWeight(item.AppliedAt, now))
-                })
-                .OrderByDescending(group => group.Score)
-                .ThenByDescending(group => group.Items.Count)
-                .ThenByDescending(group => group.Items.Max(item => item.AppliedAt))
-                .First();
+                .ToDictionary(group => group.Key, group => group.ToList());
 
-            return bestGroup.Items
-                .OrderByDescending(item => item.AppliedAt)
-                .First();
+            var maxGroupCount = Math.Max(1, groupedBySignature.Values.Max(items => items.Count));
+            var historyCount = Math.Max(1, history.Count);
+            var inputWeightSum = settings.FrequencyWeight + settings.RecencyWeight + settings.CompletenessWeight + settings.ConsistencyWeight;
+            inputWeightSum = inputWeightSum <= 0 ? 1.0 : inputWeightSum;
+
+            FilteredPreference bestItem = history[0];
+            var bestScore = double.MinValue;
+
+            foreach (var item in history)
+            {
+                var signature = BuildPreferenceSignature(item);
+                var groupCount = groupedBySignature.TryGetValue(signature, out var signatureItems)
+                    ? signatureItems.Count
+                    : 1;
+
+                var frequencyNorm = Clamp01((double)groupCount / maxGroupCount);
+                var consistencyNorm = Clamp01((double)groupCount / historyCount);
+                var recencyNorm = CalculateRecencyWeight(item.AppliedAt, now, settings.RecencyHalfLifeDays);
+                var completenessNorm = CalculateCompletenessScore(item, settings);
+
+                var fuzzyScore = InferFuzzyPreferenceScore(
+                    frequencyNorm,
+                    recencyNorm,
+                    completenessNorm,
+                    consistencyNorm);
+
+                var weightedInputScore =
+                    ((frequencyNorm * settings.FrequencyWeight) +
+                     (recencyNorm * settings.RecencyWeight) +
+                     (completenessNorm * settings.CompletenessWeight) +
+                     (consistencyNorm * settings.ConsistencyWeight)) / inputWeightSum;
+
+                var finalScore =
+                    (fuzzyScore * settings.FuzzyInferenceWeight) +
+                    (weightedInputScore * (1.0 - settings.FuzzyInferenceWeight));
+
+                // Small tie-break bonus to keep very recent, same-quality choices preferred.
+                finalScore += recencyNorm * settings.RecentTieBreakerWeight;
+
+                if (finalScore > bestScore ||
+                    (Math.Abs(finalScore - bestScore) < 0.000001 && item.AppliedAt > bestItem.AppliedAt))
+                {
+                    bestScore = finalScore;
+                    bestItem = item;
+                }
+            }
+
+            return bestItem;
         }
 
-        private static double CalculateRecencyWeight(DateTime appliedAt, DateTime nowUtc)
+        private PreferenceResolverSettings GetResolverSettings()
+        {
+            var section = _configuration.GetSection("FilteredPreferenceResolution");
+
+            return new PreferenceResolverSettings
+            {
+                HistoryLimit = Math.Clamp(section.GetValue("HistoryLimit", 150), 20, 500),
+                RecencyHalfLifeDays = Math.Clamp(section.GetValue("RecencyHalfLifeDays", 14.0), 1.0, 120.0),
+                FrequencyWeight = Math.Clamp(section.GetValue("FrequencyWeight", 0.35), 0.0, 1.0),
+                RecencyWeight = Math.Clamp(section.GetValue("RecencyWeight", 0.35), 0.0, 1.0),
+                CompletenessWeight = Math.Clamp(section.GetValue("CompletenessWeight", 0.20), 0.0, 1.0),
+                ConsistencyWeight = Math.Clamp(section.GetValue("ConsistencyWeight", 0.10), 0.0, 1.0),
+                FuzzyInferenceWeight = Math.Clamp(section.GetValue("FuzzyInferenceWeight", 0.70), 0.0, 1.0),
+                RecentTieBreakerWeight = Math.Clamp(section.GetValue("RecentTieBreakerWeight", 0.02), 0.0, 0.15),
+                StationPresenceWeight = Math.Clamp(section.GetValue("StationPresenceWeight", 0.20), 0.0, 0.8),
+                AdvancedFilterPresenceWeight = Math.Clamp(section.GetValue("AdvancedFilterPresenceWeight", 0.80), 0.2, 1.0)
+            };
+        }
+
+        private static double CalculateRecencyWeight(DateTime appliedAt, DateTime nowUtc, double halfLifeDays)
         {
             var days = Math.Max(0.0, (nowUtc - appliedAt).TotalDays);
-            return 1.0 / (1.0 + (days / 14.0));
+            return 1.0 / (1.0 + (days / Math.Max(1.0, halfLifeDays)));
+        }
+
+        private static double CalculateCompletenessScore(FilteredPreference item, PreferenceResolverSettings settings)
+        {
+            var stationScore = DeserializeStations(item.StationsJson).Any() ? 1.0 : 0.0;
+
+            var advancedFeatures = 0.0;
+            if (!string.IsNullOrWhiteSpace(NormalizeText(item.MoodCode))) advancedFeatures += 1.0;
+            if (!string.IsNullOrWhiteSpace(NormalizeText(item.VehicleSize))) advancedFeatures += 1.0;
+            if (item.AvoidTolls) advancedFeatures += 1.0;
+            if (item.AvoidHighways) advancedFeatures += 1.0;
+            if (item.AvoidFerries) advancedFeatures += 1.0;
+            if (!string.IsNullOrWhiteSpace(NormalizeText(item.TrafficTimeMode)) &&
+                !string.Equals(item.TrafficTimeMode, "none", StringComparison.OrdinalIgnoreCase))
+            {
+                advancedFeatures += 1.0;
+            }
+            if (item.TrafficStartDateTime.HasValue) advancedFeatures += 1.0;
+            if (item.TrafficEndDateTime.HasValue) advancedFeatures += 1.0;
+            if (item.IncludeEvChargingStations) advancedFeatures += 1.0;
+
+            var advancedScore = Clamp01(advancedFeatures / 9.0);
+            return Clamp01((stationScore * settings.StationPresenceWeight) + (advancedScore * settings.AdvancedFilterPresenceWeight));
+        }
+
+        private static double InferFuzzyPreferenceScore(
+            double frequencyNorm,
+            double recencyNorm,
+            double completenessNorm,
+            double consistencyNorm)
+        {
+            var frequencyLow = Trapezoid(frequencyNorm, 0.0, 0.0, 0.28, 0.50);
+            var frequencyMedium = Triangle(frequencyNorm, 0.32, 0.58, 0.82);
+            var frequencyHigh = Trapezoid(frequencyNorm, 0.68, 0.84, 1.0, 1.0);
+
+            var recencyLow = Trapezoid(recencyNorm, 0.0, 0.0, 0.28, 0.50);
+            var recencyMedium = Triangle(recencyNorm, 0.34, 0.58, 0.82);
+            var recencyHigh = Trapezoid(recencyNorm, 0.70, 0.86, 1.0, 1.0);
+
+            var consistencyLow = Trapezoid(consistencyNorm, 0.0, 0.0, 0.20, 0.42);
+            var consistencyMedium = Triangle(consistencyNorm, 0.24, 0.50, 0.76);
+            var consistencyHigh = Trapezoid(consistencyNorm, 0.64, 0.82, 1.0, 1.0);
+
+            var completenessMedium = Triangle(completenessNorm, 0.28, 0.54, 0.78);
+            var completenessHigh = Trapezoid(completenessNorm, 0.64, 0.82, 1.0, 1.0);
+
+            var veryHigh = Math.Max(
+                Math.Min(frequencyHigh, recencyHigh),
+                Math.Min(frequencyHigh, consistencyHigh));
+
+            var high = Math.Max(
+                Math.Max(Math.Min(frequencyMedium, recencyHigh), Math.Min(frequencyHigh, recencyMedium)),
+                Math.Max(Math.Min(completenessHigh, recencyMedium), Math.Min(consistencyMedium, recencyHigh)));
+
+            var medium = Math.Max(
+                Math.Min(frequencyMedium, recencyMedium),
+                Math.Max(Math.Min(completenessMedium, recencyMedium), Math.Min(frequencyHigh, recencyLow)));
+
+            var low = Math.Max(
+                Math.Min(frequencyLow, recencyLow),
+                Math.Min(consistencyLow, recencyLow));
+
+            const double veryLowCenter = 0.12;
+            const double lowCenter = 0.30;
+            const double mediumCenter = 0.56;
+            const double highCenter = 0.78;
+            const double veryHighCenter = 0.92;
+
+            var numerator =
+                (low * lowCenter) +
+                (medium * mediumCenter) +
+                (high * highCenter) +
+                (veryHigh * veryHighCenter);
+            var denominator = low + medium + high + veryHigh;
+
+            if (denominator <= 0)
+            {
+                return veryLowCenter;
+            }
+
+            return Clamp01(numerator / denominator);
+        }
+
+        private static double Triangle(double x, double a, double b, double c)
+        {
+            if (x <= a || x >= c) return 0.0;
+            if (Math.Abs(x - b) < double.Epsilon) return 1.0;
+            return x < b ? (x - a) / Math.Max(0.000001, b - a) : (c - x) / Math.Max(0.000001, c - b);
+        }
+
+        private static double Trapezoid(double x, double a, double b, double c, double d)
+        {
+            if (x <= a || x >= d) return 0.0;
+            if (x >= b && x <= c) return 1.0;
+            if (x > a && x < b) return (x - a) / Math.Max(0.000001, b - a);
+            return (d - x) / Math.Max(0.000001, d - c);
+        }
+
+        private static double Clamp01(double value)
+        {
+            return Math.Clamp(value, 0.0, 1.0);
         }
 
         private static string BuildPreferenceSignature(FilteredPreference item)
@@ -480,6 +425,20 @@ Return ONLY JSON in this format:
                 item.IncludeEvChargingStations ? "1" : "0",
                 stationFingerprint
             });
+        }
+
+        private sealed class PreferenceResolverSettings
+        {
+            public int HistoryLimit { get; set; }
+            public double RecencyHalfLifeDays { get; set; }
+            public double FrequencyWeight { get; set; }
+            public double RecencyWeight { get; set; }
+            public double CompletenessWeight { get; set; }
+            public double ConsistencyWeight { get; set; }
+            public double FuzzyInferenceWeight { get; set; }
+            public double RecentTieBreakerWeight { get; set; }
+            public double StationPresenceWeight { get; set; }
+            public double AdvancedFilterPresenceWeight { get; set; }
         }
 
         private static string BuildStationFingerprint(string? stationsJson)
